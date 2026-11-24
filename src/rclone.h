@@ -77,6 +77,7 @@ std::string parent_path(const std::string &path);
 
 // A source/destination that starts with '-' would be read by rclone as a flag.
 bool valid_path_spec(const std::string &spec);
+bool valid_files_from_raw_name(const std::string &name);
 
 // Drops flags that can run programs, open servers or redirect logs (used for imported jobs).
 // Words that were removed are appended to `removed`.

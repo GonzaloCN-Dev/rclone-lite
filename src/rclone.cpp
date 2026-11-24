@@ -149,6 +149,11 @@ bool valid_path_spec(const std::string &spec)
     return true;
 }
 
+bool valid_files_from_raw_name(const std::string &name)
+{
+    return !name.empty() && name.find_first_of("\r\n") == std::string::npos;
+}
+
 namespace {
 
 std::string lowered(std::string s)
@@ -167,7 +172,7 @@ bool is_blocked_flag(const std::string &word)
     if (eq != std::string::npos)
         name.resize(eq);
     name = lowered(name);
-    static const char *exact[] = { "config", "password-command", "metadata-mapper", "sftp-ssh", "log-file",
+    static const char *exact[] = { "config", "config-dir", "password-command", "metadata-mapper", "sftp-ssh", "log-file",
                                    "files-from", "files-from-raw", "files-from0", "filter-from", "exclude-from",
                                    "include-from", "use-json-log", "stats", "stats-log-level", "stats-one-line",
                                    "dump", "rc" };

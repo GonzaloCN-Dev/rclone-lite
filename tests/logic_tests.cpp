@@ -28,15 +28,19 @@ int main()
     require(valid_path_spec("C:/Users/name"), "Windows paths are valid");
     require(!valid_path_spec("--config=C:/outside.conf"), "leading flags are not valid paths");
     require(!valid_path_spec(":sftp,ssh=cmd:host:/data"), "backend-option paths are not valid imports");
+    require(!valid_files_from_raw_name("name\nother.txt") &&
+                    !valid_files_from_raw_name("name\r.txt") &&
+                    valid_files_from_raw_name("two words.txt"),
+            "newline-delimited batches reject names with line breaks");
     require(sanitize_extra_flags("-config C:/outside.conf -transfers=4") == "-transfers=4",
             "single-dash long forms of blocked flags are stripped");
 
     std::vector<std::string> removed;
     std::string safe = sanitize_extra_flags(
-            "--transfers=16 --password-command=whoami --log-file C:/private.log --files-from C:/private.txt --bwlimit=2M --rc",
+            "--transfers=16 --password-command=whoami --log-file C:/private.log --files-from C:/private.txt --config-dir C:/fake --bwlimit=2M --rc",
             &removed);
     require(safe == "--transfers=16 --bwlimit=2M", "dangerous imported flags are stripped");
-    require(removed.size() == 4, "blocked flags and their values are reported");
+    require(removed.size() == 5, "blocked flags and their values are reported");
 
     require(is_auth_error("failed to refresh token: invalid_grant"), "invalid_grant is recognized");
     require(is_auth_error("AADSTS700082: refresh token has expired"), "expired Microsoft tokens are recognized");

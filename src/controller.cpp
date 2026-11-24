@@ -921,19 +921,37 @@ void Controller::transfer_selected(bool to_right, bool move)
         s.opt = base_options();
         steps.insert(steps.begin(), std::move(s));
     } else if (file_names.size() > 1) {
-        Step s;
-        s.src = P.spec();
-        s.dst = D.spec();
-        s.mode = move ? "move" : "copy";
-        s.opt = base_options();
-        s.opt.mode = s.mode;
-        s.temp_file = write_temp_lines(file_names);
-        if (s.temp_file.empty()) {
-            toast("No se pudo crear la lista temporal de archivos.", true);
-            return;
+        const bool raw_list_safe = std::all_of(file_names.begin(), file_names.end(), valid_files_from_raw_name);
+        if (raw_list_safe) {
+            Step s;
+            s.src = P.spec();
+            s.dst = D.spec();
+            s.mode = move ? "move" : "copy";
+            s.opt = base_options();
+            s.opt.mode = s.mode;
+            s.temp_file = write_temp_lines(file_names);
+            if (s.temp_file.empty()) {
+                toast("No se pudo crear la lista temporal de archivos.", true);
+                return;
+            }
+            s.opt.files_from = s.temp_file;
+            steps.insert(steps.begin(), std::move(s));
+        } else {
+            // A newline is an item separator in --files-from-raw. Keep unusual remote names
+            // intact by transferring those files individually instead of splitting their names.
+            std::vector<Step> individual_steps;
+            for (const auto &name : file_names) {
+                Step s;
+                s.src = entry_join(P, name);
+                s.dst = entry_join(D, name);
+                s.file = true;
+                s.mode = move ? "move" : "copy";
+                s.opt = base_options();
+                individual_steps.push_back(std::move(s));
+            }
+            steps.insert(steps.begin(), std::make_move_iterator(individual_steps.begin()),
+                         std::make_move_iterator(individual_steps.end()));
         }
-        s.opt.files_from = s.temp_file;
-        steps.insert(steps.begin(), std::move(s));
     }
     auto t = std::make_shared<Task>();
     t->id = new_id();
