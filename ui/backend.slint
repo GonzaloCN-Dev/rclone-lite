@@ -159,6 +159,16 @@ export global Backend {
     in-out property <bool> set-minimize-tray: false;
     in-out property <bool> set-auto-update: true;
     in-out property <bool> set-auto-tune: true;
+    in property <[string]> drive-remotes;
+    in-out property <int> drive-remote-index: -1;
+    in-out property <string> drive-client-id;
+    in-out property <string> drive-client-secret;
+    in property <string> drive-status;
+    in property <bool> drive-shared: false;
+    in property <bool> drive-busy: false;
+    callback drive-remote-changed(int);
+    callback drive-creds-save();
+    callback drive-guide();
     in property <string> update-status;
     in property <bool> update-busy: false;
     callback check-updates();

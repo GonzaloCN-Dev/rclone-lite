@@ -2,7 +2,7 @@
 ; Compilar con: installer\build-installer.ps1
 
 #define AppName "Rclone Lite"
-#define AppVersion "1.1.5"
+#define AppVersion "1.1.6"
 #define AppPublisher "Gonzalo Cruz Nuñez"
 #define AppExe "RcloneLite.exe"
 

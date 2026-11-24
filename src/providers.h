@@ -25,7 +25,9 @@ inline const std::vector<Provider> &providers()
 {
     static const std::vector<Provider> list = {
         { "Google Drive", "drive",
-          "Se abrirá el navegador para que autorices el acceso a tu cuenta de Google.", {},
+          "Se abrirá el navegador para que autorices el acceso a tu cuenta de Google. Necesitas tu propio client_id y client_secret (gratis, en Google Cloud Console): Google ha bloqueado la clave compartida de rclone y rechaza el inicio de sesión.",
+          { { "Client ID de Google", "client_id", "xxxx.apps.googleusercontent.com", false },
+            { "Client secret", "client_secret", "", true } },
           { { "scope", "drive" } } },
         { "OneDrive", "onedrive",
           "Se abrirá el navegador para iniciar sesión con tu cuenta de Microsoft.", {}, {} },

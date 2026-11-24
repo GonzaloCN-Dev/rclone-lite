@@ -250,6 +250,7 @@ std::vector<RemoteInfo> Rclone::list_remotes() const
         ri.name = it.key();
         if (it->is_object()) {
             ri.type = jv(*it, "type", "");
+            ri.own_client = !jv(*it, "client_id", "").empty();
         }
         out.push_back(std::move(ri));
     }

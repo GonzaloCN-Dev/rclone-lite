@@ -23,6 +23,7 @@ struct Entry {
 struct RemoteInfo {
     std::string name;
     std::string type;
+    bool own_client = false; // drive: has its own client_id (not rclone's shared one)
 };
 
 struct TransferFile {
