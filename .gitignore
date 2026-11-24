@@ -1,0 +1,21 @@
+# Build output and generated dependencies
+/build/
+/out/
+/dist/
+/installer/payload/
+
+# Visual Studio / CMake / Ninja
+/.vs/
+/.idea/
+CMakeUserPresets.json
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# Local application data and diagnostics
+*.log
+*.dmp
+*.tmp
+Thumbs.db
+Desktop.ini

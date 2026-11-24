@@ -1,0 +1,251 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { FileRow } from "types.slint";
+import { Backend } from "backend.slint";
+import { Icon, IconBtn, TextField, Dropdown, Spinner, EmptyState, Sep } from "widgets.slint";
+
+component HeaderCell inherits Rectangle {
+    in property <string> text;
+    in property <string> key;
+    in property <string> sort-key;
+    in property <bool> sort-asc;
+    in property <bool> right-align: false;
+    callback clicked();
+    background: ta.has-hover ? Theme.hover : transparent;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 4px;
+        alignment: root.right-align ? end : start;
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.sort-key == root.key ? Theme.accent : Theme.text-dim;
+            vertical-alignment: center;
+        }
+        if root.sort-key == root.key: Icon {
+            glyph: root.sort-asc ? "\u{E70E}" : "\u{E70D}";
+            font-size: 8px;
+            color: Theme.accent;
+            width: 10px;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Pane inherits Rectangle {
+    in property <int> side;
+    in property <bool> active;
+    in property <[string]> remotes;
+    in property <int> remote-index;
+    in property <string> path;
+    in property <[FileRow]> files;
+    in property <bool> loading;
+    in property <string> error;
+    in property <string> summary;
+    in property <string> sort-key;
+    in property <bool> sort-asc;
+
+    background: Theme.surface;
+    border-radius: 10px;
+    border-width: root.active ? 1.5px : 1px;
+    border-color: root.active ? Theme.accent : Theme.border;
+    clip: true;
+    animate border-color { duration: 120ms; }
+
+    // Clicking anywhere in the pane makes it the active one
+    TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                Backend.active-side = root.side;
+            }
+        }
+    }
+
+    VerticalLayout {
+        // Source selector + path
+        Rectangle {
+            height: 48px;
+            background: Theme.surface2;
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 6px;
+                Dropdown {
+                    width: 170px;
+                    model: root.remotes;
+                    current-index: root.remote-index;
+                    placeholder: "Origen";
+                    selected(i) => { Backend.pane-remote(root.side, i); }
+                }
+                IconBtn {
+                    glyph: "\u{E72B}";
+                    enabled: !root.loading;
+                    clicked => { Backend.pane-back(root.side); }
+                }
+                IconBtn {
+                    glyph: "\u{E74A}";
+                    clicked => { Backend.pane-up(root.side); }
+                }
+                TextField {
+                    value: root.path;
+                    mono: true;
+                    placeholder: "Ruta (ej. carpeta/subcarpeta)";
+                    accepted(t) => { Backend.pane-path(root.side, t); }
+                }
+                IconBtn {
+                    glyph: "\u{E8DA}";
+                    clicked => { Backend.pane-browse(root.side); }
+                }
+                IconBtn {
+                    glyph: "\u{E72C}";
+                    clicked => { Backend.pane-refresh(root.side); }
+                }
+            }
+        }
+        Sep { }
+
+        // Column headers
+        Rectangle {
+            height: 28px;
+            background: Theme.surface;
+            HorizontalLayout {
+                HeaderCell {
+                    text: "Nombre";
+                    key: "name";
+                    sort-key: root.sort-key;
+                    sort-asc: root.sort-asc;
+                    clicked => { Backend.pane-sort(root.side, "name"); }
+                }
+                HeaderCell {
+                    width: 150px;
+                    text: "Modificado";
+                    key: "date";
+                    sort-key: root.sort-key;
+                    sort-asc: root.sort-asc;
+                    clicked => { Backend.pane-sort(root.side, "date"); }
+                }
+                HeaderCell {
+                    width: 90px;
+                    text: "Tamaño";
+                    key: "size";
+                    right-align: true;
+                    sort-key: root.sort-key;
+                    sort-asc: root.sort-asc;
+                    clicked => { Backend.pane-sort(root.side, "size"); }
+                }
+            }
+        }
+        Sep { }
+
+        // File list
+        Rectangle {
+            vertical-stretch: 1;
+            if root.error != "": VerticalLayout {
+                padding: 24px;
+                EmptyState {
+                    glyph: "\u{E783}";
+                    title: "No se pudo leer la carpeta";
+                    text: root.error;
+                }
+            }
+            if root.error == "" && root.remote-index < 0: VerticalLayout {
+                padding: 24px;
+                EmptyState {
+                    glyph: "\u{E8B7}";
+                    title: "Elige un origen";
+                    text: "Selecciona el disco local o un remoto en la lista de arriba.";
+                }
+            }
+            if root.error == "" && root.remote-index >= 0 && root.files.length == 0 && !root.loading: VerticalLayout {
+                padding: 24px;
+                EmptyState {
+                    glyph: "\u{E8B7}";
+                    title: "Carpeta vacía";
+                    text: "No hay archivos en esta ubicación.";
+                }
+            }
+            if root.error == "" && root.files.length > 0: ListView {
+                for f[i] in root.files: Rectangle {
+                    height: 30px;
+                    background: f.selected ? Theme.selection : row-ta.has-hover ? Theme.hover : transparent;
+                    HorizontalLayout {
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                spacing: 8px;
+                                Icon {
+                                    width: 20px;
+                                    glyph: f.is-dir ? "\u{E8B7}" : "\u{E8A5}";
+                                    color: f.is-dir ? Theme.folder : Theme.text-faint;
+                                    font-size: 15px;
+                                }
+                                Text {
+                                    text: f.name;
+                                    overflow: elide;
+                                    font-size: 13px;
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        Text {
+                            width: 150px;
+                            text: f.date;
+                            font-size: 12px;
+                            color: Theme.text-dim;
+                            vertical-alignment: center;
+                            horizontal-alignment: left;
+                            overflow: elide;
+                        }
+                        Text {
+                            width: 90px;
+                            text: f.size;
+                            font-size: 12px;
+                            color: Theme.text-dim;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                            overflow: elide;
+                        }
+                        Rectangle { width: 10px; }
+                    }
+                    row-ta := TouchArea {
+                        pointer-event(e) => {
+                            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                Backend.active-side = root.side;
+                                Backend.pane-click(root.side, i, e.modifiers.control, e.modifiers.shift);
+                            }
+                        }
+                        double-clicked => { Backend.pane-open(root.side, i); }
+                    }
+                }
+            }
+            if root.loading: Rectangle {
+                background: Theme.surface.with-alpha(0.7);
+                Spinner {
+                    size: 26px;
+                }
+            }
+        }
+        Sep { }
+
+        Rectangle {
+            height: 26px;
+            background: Theme.surface2;
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                Text {
+                    text: root.summary;
+                    font-size: 11px;
+                    color: Theme.text-dim;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

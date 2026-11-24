@@ -1,0 +1,356 @@
+import { Theme } from "theme.slint";
+import { Backend } from "backend.slint";
+import { Icon, IconBtn, Btn, Badge, Sep, Spinner } from "widgets.slint";
+import { Pane } from "explorer.slint";
+import { TransferPanel } from "transfers.slint";
+import { RemotesPage, JobsPage, MountsPage, HistoryPage, SettingsPage } from "pages.slint";
+import { ConfirmDialog, JobDialog, RemoteWizard, MountDialog, ComparePanel } from "dialogs.slint";
+
+export { Backend, Theme }
+
+component NavItem inherits Rectangle {
+    in property <string> glyph;
+    in property <string> text;
+    in property <bool> active;
+    in property <int> badge: 0;
+    callback clicked();
+    height: 42px;
+    border-radius: 8px;
+    background: root.active ? Theme.accent-soft : ta.has-hover ? Theme.hover : transparent;
+    if root.active: Rectangle {
+        x: 0;
+        y: 10px;
+        width: 3px;
+        height: parent.height - 20px;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 10px;
+        spacing: 12px;
+        Icon {
+            width: 20px;
+            glyph: root.glyph;
+            color: root.active ? Theme.accent : Theme.text-dim;
+        }
+        Text {
+            text: root.text;
+            font-size: 13px;
+            font-weight: root.active ? 700 : 500;
+            color: root.active ? Theme.text : Theme.text-dim;
+            vertical-alignment: center;
+        }
+        if root.badge > 0: Rectangle {
+            width: 20px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 9px;
+            background: Theme.accent;
+            Text { text: root.badge; font-size: 10px; font-weight: 700; color: #ffffff; }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component ToolBtn inherits Rectangle {
+    in property <string> glyph;
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> primary: false;
+    callback clicked();
+    width: max(64px, lbl.preferred-width + 20px);
+    height: 54px;
+    border-radius: 8px;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: root.primary ? (ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent) : ta.has-hover ? Theme.hover : transparent;
+    VerticalLayout {
+        padding-top: 7px;
+        padding-bottom: 6px;
+        spacing: 4px;
+        Icon {
+            glyph: root.glyph;
+            font-size: 18px;
+            height: 22px;
+            color: root.primary ? #ffffff : Theme.accent;
+        }
+        lbl := Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            color: root.primary ? #ffffff : Theme.text;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+component ExplorerPage inherits Rectangle {
+    property <bool> has-selection: true;
+    VerticalLayout {
+        // Action bar
+        Rectangle {
+            height: 70px;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 4px;
+                ToolBtn {
+                    glyph: "\u{E72A}";
+                    text: "Copiar →";
+                    primary: true;
+                    enabled: Backend.rclone-ok;
+                    clicked => { Backend.copy-selected(true); }
+                }
+                ToolBtn {
+                    glyph: "\u{E72B}";
+                    text: "← Copiar";
+                    primary: true;
+                    enabled: Backend.rclone-ok;
+                    clicked => { Backend.copy-selected(false); }
+                }
+                Rectangle { width: 10px; }
+                ToolBtn { glyph: "\u{E8DE}"; text: "Mover →"; enabled: Backend.rclone-ok; clicked => { Backend.move-selected(true); } }
+                ToolBtn { glyph: "\u{E8DE}"; text: "← Mover"; enabled: Backend.rclone-ok; clicked => { Backend.move-selected(false); } }
+                Rectangle { width: 10px; }
+                ToolBtn { glyph: "\u{E895}"; text: "Sincronizar"; enabled: Backend.rclone-ok; clicked => { Backend.open-sync(); } }
+                ToolBtn { glyph: "\u{E8FD}"; text: "Comparar"; enabled: Backend.rclone-ok; clicked => { Backend.start-compare(); } }
+                Rectangle { width: 10px; }
+                ToolBtn { glyph: "\u{E8F4}"; text: "Carpeta nueva"; enabled: Backend.rclone-ok; clicked => { Backend.new-folder(); } }
+                ToolBtn { glyph: "\u{E8AC}"; text: "Renombrar"; enabled: Backend.rclone-ok; clicked => { Backend.rename-selected(); } }
+                ToolBtn { glyph: "\u{E74D}"; text: "Eliminar"; enabled: Backend.rclone-ok; clicked => { Backend.delete-selected(); } }
+                ToolBtn { glyph: "\u{E71B}"; text: "Copiar enlace"; enabled: Backend.rclone-ok; clicked => { Backend.copy-link(); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+
+        // Panes
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 160px;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 10px;
+                Pane {
+                    side: 0;
+                    active: Backend.active-side == 0;
+                    remotes: Backend.remote-names;
+                    remote-index: Backend.left-remote-index;
+                    path: Backend.left-path;
+                    files: Backend.left-files;
+                    loading: Backend.left-loading;
+                    error: Backend.left-error;
+                    summary: Backend.left-summary;
+                    sort-key: Backend.left-sort-key;
+                    sort-asc: Backend.left-sort-asc;
+                }
+                Pane {
+                    side: 1;
+                    active: Backend.active-side == 1;
+                    remotes: Backend.remote-names;
+                    remote-index: Backend.right-remote-index;
+                    path: Backend.right-path;
+                    files: Backend.right-files;
+                    loading: Backend.right-loading;
+                    error: Backend.right-error;
+                    summary: Backend.right-summary;
+                    sort-key: Backend.right-sort-key;
+                    sort-asc: Backend.right-sort-asc;
+                }
+            }
+        }
+
+        // Transfers
+        Rectangle {
+            height: Backend.bottom-open ? 230px : 48px;
+            animate height { duration: 160ms; easing: ease-out; }
+            TransferPanel {
+                x: 14px;
+                y: 10px;
+                width: parent.width - 28px;
+                height: parent.height - 10px - 12px;
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Rclone Lite";
+    icon: @image-url("../assets/icon.png");
+    min-width: 1000px;
+    min-height: 640px;
+    preferred-width: 1360px;
+    preferred-height: 820px;
+    background: Theme.bg;
+    default-font-family: "Segoe UI";
+    default-font-size: 13px;
+
+    HorizontalLayout {
+        // Sidebar
+        Rectangle {
+            width: 210px;
+            background: Theme.sidebar;
+            VerticalLayout {
+                padding: 12px;
+                spacing: 4px;
+                Rectangle {
+                    height: 62px;
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        spacing: 10px;
+                        Rectangle {
+                            y: 12px;
+                            width: 36px;
+                            height: 36px;
+                            border-radius: 10px;
+                            background: Theme.accent;
+                            Icon { glyph: "\u{E753}"; color: #ffffff; font-size: 20px; }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Text { text: "Rclone Lite"; font-size: 15px; font-weight: 800; color: Theme.text; }
+                            Text { text: "Gestor de la nube"; font-size: 11px; color: Theme.text-faint; }
+                        }
+                    }
+                }
+                NavItem { glyph: "\u{E8B7}"; text: "Explorador"; active: Backend.page == 0; clicked => { Backend.page = 0; } }
+                NavItem { glyph: "\u{E753}"; text: "Remotos"; active: Backend.page == 1; badge: Backend.remotes.length; clicked => { Backend.page = 1; } }
+                NavItem { glyph: "\u{E8F1}"; text: "Trabajos"; active: Backend.page == 2; badge: Backend.jobs.length; clicked => { Backend.page = 2; } }
+                NavItem { glyph: "\u{E8CE}"; text: "Montajes"; active: Backend.page == 3; clicked => { Backend.page = 3; } }
+                NavItem { glyph: "\u{E81C}"; text: "Historial"; active: Backend.page == 4; clicked => { Backend.page = 4; } }
+                Rectangle { vertical-stretch: 1; }
+                NavItem { glyph: "\u{E713}"; text: "Ajustes"; active: Backend.page == 5; clicked => { Backend.page = 5; } }
+                Rectangle {
+                    height: 44px;
+                    VerticalLayout {
+                        padding-left: 8px;
+                        padding-top: 6px;
+                        spacing: 2px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                y: 4px;
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: Backend.rclone-ok ? Theme.success : Theme.danger;
+                            }
+                            Text {
+                                text: Backend.rclone-ok ? "rclone conectado" : "rclone no encontrado";
+                                font-size: 11px;
+                                color: Theme.text-dim;
+                            }
+                        }
+                        Text { text: "v" + Backend.app-version; font-size: 10px; color: Theme.text-faint; }
+                    }
+                }
+            }
+        }
+        Sep { vertical: true; }
+
+        // Content
+        Rectangle {
+            horizontal-stretch: 1;
+            if Backend.page == 0: ExplorerPage { }
+            if Backend.page == 1: RemotesPage { }
+            if Backend.page == 2: JobsPage { }
+            if Backend.page == 3: MountsPage { }
+            if Backend.page == 4: HistoryPage { }
+            if Backend.page == 5: SettingsPage { }
+
+            // Missing-rclone banner
+            if !Backend.rclone-ok && Backend.page != 5: Rectangle {
+                y: 0;
+                height: 40px;
+                background: Theme.danger.with-alpha(0.9);
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 10px;
+                    spacing: 10px;
+                    Text {
+                        text: "No se encontró rclone. Instálalo (winget install Rclone.Rclone) o indica su ruta en Ajustes.";
+                        color: #ffffff;
+                        font-size: 12px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { y: 6px; compact: true; text: "Ir a Ajustes"; clicked => { Backend.page = 5; } }
+                }
+            }
+        }
+    }
+
+    // Toast
+    if Backend.toast-visible: Rectangle {
+        x: (parent.width - self.width) / 2 + 105px;
+        y: parent.height - self.height - 24px;
+        width: min(560px, parent.width - 280px);
+        height: 46px;
+        border-radius: 10px;
+        background: Backend.toast-error ? Theme.danger : Theme.surface3;
+        border-width: 1px;
+        border-color: Backend.toast-error ? Theme.danger : Theme.border;
+        drop-shadow-blur: 18px;
+        drop-shadow-color: #00000070;
+        drop-shadow-offset-y: 4px;
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 6px;
+            spacing: 8px;
+            Icon {
+                width: 20px;
+                glyph: Backend.toast-error ? "\u{E783}" : "\u{E73E}";
+                color: Backend.toast-error ? #ffffff : Theme.success;
+            }
+            Text {
+                text: Backend.toast;
+                font-size: 13px;
+                font-weight: 500;
+                color: Backend.toast-error ? #ffffff : Theme.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            IconBtn {
+                y: 8px;
+                box: 30px;
+                glyph: "\u{E711}";
+                tint: Backend.toast-error ? #ffffff : Theme.text-dim;
+                clicked => { Backend.dismiss-toast(); }
+            }
+        }
+    }
+
+    // Modals
+    if Backend.dialog == "confirm" || Backend.dialog == "input": ConfirmDialog {
+        width: parent.width;
+        height: parent.height;
+    }
+    if Backend.job-editing: JobDialog {
+        width: parent.width;
+        height: parent.height;
+    }
+    if Backend.dialog == "remote": RemoteWizard {
+        width: parent.width;
+        height: parent.height;
+    }
+    if Backend.dialog == "mount": MountDialog {
+        width: parent.width;
+        height: parent.height;
+    }
+    if Backend.compare-open: ComparePanel {
+        width: parent.width;
+        height: parent.height;
+    }
+}

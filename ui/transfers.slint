@@ -1,0 +1,290 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Backend } from "backend.slint";
+import { Icon, IconBtn, Btn, ProgressBar, Sep, EmptyState, Badge } from "widgets.slint";
+
+component Tab inherits Rectangle {
+    in property <string> text;
+    in property <int> count: 0;
+    in property <bool> active;
+    callback clicked();
+    width: lbl.preferred-width + 28px + (root.count > 0 ? 26px : 0px);
+    background: ta.has-hover && !root.active ? Theme.hover : transparent;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 7px;
+        lbl := Text {
+            text: root.text;
+            font-size: 12px;
+            font-weight: 600;
+            color: root.active ? Theme.accent : Theme.text-dim;
+            vertical-alignment: center;
+        }
+        if root.count > 0: Rectangle {
+            width: 19px;
+            height: 17px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 8px;
+            background: root.active ? Theme.accent : Theme.surface3;
+            Text {
+                text: root.count;
+                font-size: 10px;
+                font-weight: 700;
+                color: root.active ? #ffffff : Theme.text-dim;
+            }
+        }
+    }
+    Rectangle {
+        y: parent.height - 2px;
+        height: 2px;
+        background: Theme.accent;
+        visible: root.active;
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component TransferPanel inherits Rectangle {
+    background: Theme.surface;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    VerticalLayout {
+        Rectangle {
+            height: 36px;
+            background: Theme.surface2;
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 8px;
+                Tab {
+                    text: "Transferencias";
+                    count: Backend.active-transfers.length;
+                    active: Backend.bottom-tab == 0;
+                    clicked => { Backend.bottom-tab = 0; Backend.bottom-open = true; }
+                }
+                Tab {
+                    text: "Completadas";
+                    count: Backend.done-transfers.length;
+                    active: Backend.bottom-tab == 1;
+                    clicked => { Backend.bottom-tab = 1; Backend.bottom-open = true; }
+                }
+                Tab {
+                    text: "Registro";
+                    active: Backend.bottom-tab == 2;
+                    clicked => { Backend.bottom-tab = 2; Backend.bottom-open = true; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                if Backend.total-speed != "": Text {
+                    text: Backend.total-speed;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.accent;
+                    vertical-alignment: center;
+                }
+                Rectangle { width: 8px; }
+                if Backend.bottom-tab == 0 && Backend.active-transfers.length > 0: Btn {
+                    y: 4px;
+                    height: 28px;
+                    compact: true;
+                    text: "Cancelar todo";
+                    kind: "ghost";
+                    clicked => { Backend.cancel-all(); }
+                }
+                if Backend.bottom-tab == 1 && Backend.done-transfers.length > 0: Btn {
+                    y: 4px;
+                    compact: true;
+                    text: "Limpiar";
+                    kind: "ghost";
+                    clicked => { Backend.clear-done(); }
+                }
+                if Backend.bottom-tab == 2 && Backend.logs.length > 0: Btn {
+                    y: 4px;
+                    compact: true;
+                    text: "Limpiar";
+                    kind: "ghost";
+                    clicked => { Backend.clear-logs(); }
+                }
+                IconBtn {
+                    y: 3px;
+                    box: 30px;
+                    glyph: Backend.bottom-open ? "\u{E70D}" : "\u{E70E}";
+                    clicked => { Backend.bottom-open = !Backend.bottom-open; }
+                }
+            }
+        }
+        Sep { }
+
+        if Backend.bottom-open: Rectangle {
+            vertical-stretch: 1;
+
+            if Backend.bottom-tab == 0: Rectangle {
+                if Backend.active-transfers.length == 0: VerticalLayout {
+                    padding: 12px;
+                    EmptyState {
+                        glyph: "\u{E896}";
+                        title: "Sin transferencias activas";
+                        text: "Copia o sincroniza archivos y verás aquí el progreso.";
+                    }
+                }
+                if Backend.active-transfers.length > 0: ListView {
+                    for t[i] in Backend.active-transfers: Rectangle {
+                        height: 58px;
+                        VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            padding-top: 8px;
+                            padding-bottom: 8px;
+                            spacing: 5px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Text {
+                                    text: t.title;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Theme.text;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: t.speed;
+                                    font-size: 12px;
+                                    color: Theme.text-dim;
+                                    horizontal-alignment: right;
+                                    width: 170px;
+                                }
+                                IconBtn {
+                                    box: 22px;
+                                    glyph: "\u{E711}";
+                                    tint: Theme.danger;
+                                    clicked => { Backend.cancel-transfer(t.id); }
+                                }
+                            }
+                            ProgressBar {
+                                value: t.progress;
+                                tone: t.state == "error" ? Theme.danger : Theme.accent;
+                            }
+                            Text {
+                                text: t.detail;
+                                font-size: 11px;
+                                color: Theme.text-faint;
+                                overflow: elide;
+                            }
+                        }
+                        Rectangle {
+                            y: parent.height - 1px;
+                            height: 1px;
+                            background: Theme.border;
+                        }
+                    }
+                }
+            }
+
+            if Backend.bottom-tab == 1: Rectangle {
+                if Backend.done-transfers.length == 0: VerticalLayout {
+                    padding: 12px;
+                    EmptyState {
+                        glyph: "\u{E73E}";
+                        title: "Aún no hay nada completado";
+                        text: "Las operaciones terminadas aparecerán aquí.";
+                    }
+                }
+                if Backend.done-transfers.length > 0: ListView {
+                    for t[i] in Backend.done-transfers: Rectangle {
+                        height: 46px;
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 12px;
+                            Icon {
+                                width: 22px;
+                                glyph: t.state == "ok" ? "\u{E73E}" : t.state == "cancelled" ? "\u{E711}" : "\u{E783}";
+                                color: t.state == "ok" ? Theme.success : t.state == "cancelled" ? Theme.warning : Theme.danger;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                Text {
+                                    text: t.title;
+                                    font-size: 13px;
+                                    font-weight: 500;
+                                    color: Theme.text;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: t.detail;
+                                    font-size: 11px;
+                                    color: Theme.text-faint;
+                                    overflow: elide;
+                                }
+                            }
+                            Text {
+                                width: 200px;
+                                text: t.info;
+                                font-size: 12px;
+                                color: Theme.text-dim;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        Rectangle {
+                            y: parent.height - 1px;
+                            height: 1px;
+                            background: Theme.border;
+                        }
+                    }
+                }
+            }
+
+            if Backend.bottom-tab == 2: Rectangle {
+                if Backend.logs.length == 0: VerticalLayout {
+                    padding: 12px;
+                    EmptyState {
+                        glyph: "\u{E9D9}";
+                        title: "Registro vacío";
+                        text: "Los mensajes de rclone se mostrarán aquí.";
+                    }
+                }
+                if Backend.logs.length > 0: ListView {
+                    for l[i] in Backend.logs: Rectangle {
+                        height: 22px;
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 10px;
+                            Text {
+                                width: 64px;
+                                text: l.time;
+                                font-family: "Consolas";
+                                font-size: 11px;
+                                color: Theme.text-faint;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                width: 50px;
+                                text: l.level;
+                                font-family: "Consolas";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: l.level == "ERROR" ? Theme.danger : l.level == "WARN" ? Theme.warning : l.level == "INFO" ? Theme.accent : Theme.text-faint;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: l.text;
+                                font-family: "Consolas";
+                                font-size: 11px;
+                                color: Theme.text;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

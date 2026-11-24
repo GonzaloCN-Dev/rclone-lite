@@ -1,0 +1,177 @@
+import { FileRow, RemoteRow, TransferRow, CompareRow, JobRow, HistoryRow, MountRow, LogRow, FieldRow, JobForm, MountForm } from "types.slint";
+
+export global Backend {
+    in-out property <int> page: 0;
+
+    in property <bool> rclone-ok: false;
+    in property <string> rclone-version;
+    in property <string> app-version: "1.0.0";
+    in property <string> status-text;
+
+    // Explorer
+    in property <[string]> remote-names;
+    in-out property <int> active-side: 0;
+
+    in-out property <int> left-remote-index: 0;
+    in-out property <string> left-path;
+    in property <[FileRow]> left-files;
+    in property <bool> left-loading;
+    in property <string> left-error;
+    in property <string> left-summary;
+    in property <string> left-sort-key: "name";
+    in property <bool> left-sort-asc: true;
+
+    in-out property <int> right-remote-index: 0;
+    in-out property <string> right-path;
+    in property <[FileRow]> right-files;
+    in property <bool> right-loading;
+    in property <string> right-error;
+    in property <string> right-summary;
+    in property <string> right-sort-key: "name";
+    in property <bool> right-sort-asc: true;
+
+    callback pane-remote(int, int);
+    callback pane-path(int, string);
+    callback pane-up(int);
+    callback pane-back(int);
+    callback pane-refresh(int);
+    callback pane-click(int, int, bool, bool);
+    callback pane-open(int, int);
+    callback pane-select-all(int);
+    callback pane-sort(int, string);
+    callback pane-browse(int);
+
+    callback copy-selected(bool);
+    callback move-selected(bool);
+    callback new-folder();
+    callback rename-selected();
+    callback delete-selected();
+    callback copy-link();
+    callback open-sync();
+    callback start-compare();
+
+    // Compare
+    in property <bool> compare-open: false;
+    in property <bool> compare-busy: false;
+    in property <[CompareRow]> compare-rows;
+    in property <string> compare-summary;
+    in property <string> compare-left;
+    in property <string> compare-right;
+    in-out property <bool> cmp-show-left: true;
+    in-out property <bool> cmp-show-right: true;
+    in-out property <bool> cmp-show-diff: true;
+    in-out property <bool> cmp-show-equal: false;
+    callback compare-filter-changed();
+    callback compare-toggle(int);
+    callback compare-select-all(bool);
+    callback compare-copy(bool);
+    callback compare-delete(bool);
+    callback compare-close();
+    callback compare-cancel();
+
+    // Remotes
+    in property <[RemoteRow]> remotes;
+    in-out property <int> remote-selected: -1;
+    in property <string> remote-about;
+    callback remote-select(int);
+    callback remote-new();
+    callback remote-delete();
+    callback remote-reconnect();
+    callback remote-browse(int);
+    callback remote-mount();
+    callback remotes-refresh();
+
+    // Remote wizard
+    in property <[string]> remote-types;
+    in-out property <int> remote-type-index: 0;
+    in-out property <string> remote-name-input;
+    in property <[FieldRow]> remote-fields;
+    in property <string> remote-help;
+    in property <bool> remote-busy: false;
+    in property <string> remote-error;
+    callback remote-type-changed(int);
+    callback remote-field-edited(int, string);
+    callback remote-create();
+    callback remote-cancel-create();
+
+    // Jobs
+    in property <[JobRow]> jobs;
+    in-out property <int> job-selected: -1;
+    in-out property <JobForm> job-form;
+    in-out property <bool> job-editing: false;
+    callback job-select(int);
+    callback job-new();
+    callback job-edit();
+    callback job-duplicate();
+    callback job-delete();
+    callback job-run(bool);
+    callback job-save();
+    callback job-save-run();
+    callback job-export();
+    callback job-import();
+    callback job-use-pane(int, bool);
+    callback job-from-sync();
+
+    // Mounts
+    in property <[MountRow]> mounts;
+    in-out property <int> mount-selected: -1;
+    in property <bool> winfsp-ok: true;
+    in-out property <MountForm> mount-form;
+    callback mount-select(int);
+    callback mount-new();
+    callback mount-save();
+    callback mount-toggle();
+    callback mount-delete();
+    callback mount-open();
+    callback winfsp-download();
+    callback mount-pick-folder();
+
+    // History
+    in property <[HistoryRow]> history;
+    callback history-clear();
+
+    // Transfers panel
+    in property <[TransferRow]> active-transfers;
+    in property <[TransferRow]> done-transfers;
+    in property <[LogRow]> logs;
+    in-out property <int> bottom-tab: 0;
+    in-out property <bool> bottom-open: true;
+    in property <string> total-speed;
+    callback cancel-transfer(string);
+    callback cancel-all();
+    callback clear-done();
+    callback clear-logs();
+
+    // Settings
+    in-out property <string> set-rclone-path;
+    in-out property <string> set-transfers: "4";
+    in-out property <string> set-checkers: "8";
+    in-out property <string> set-bwlimit;
+    in-out property <string> set-extra;
+    in-out property <bool> set-confirm-delete: true;
+    in-out property <bool> set-notify-done: true;
+    in-out property <bool> set-minimize-tray: false;
+    callback settings-apply();
+    callback settings-detect();
+    callback settings-browse();
+    callback open-data-folder();
+    callback open-rclone-site();
+
+    // Dialogs and feedback
+    in-out property <string> dialog: "";
+    in property <string> dialog-title;
+    in property <string> dialog-text;
+    in property <string> dialog-ok: "Aceptar";
+    in property <bool> dialog-danger: false;
+    in property <string> dialog-hint;
+    in-out property <string> dialog-input;
+    callback dialog-accept();
+    callback dialog-cancel();
+
+    in property <string> toast;
+    in property <bool> toast-error: false;
+    in property <bool> toast-visible: false;
+    callback dismiss-toast();
+
+    callback theme-changed(bool);
+}

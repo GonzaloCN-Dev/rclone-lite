@@ -1,0 +1,48 @@
+name: Informe de error
+description: Reporta un problema reproducible en Rclone Lite.
+title: "[Error]: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: Gracias por ayudar a mejorar Rclone Lite. No publiques contraseñas, tokens, enlaces privados ni archivos de configuración de rclone.
+  - type: textarea
+    id: problem
+    attributes:
+      label: ¿Qué ocurrió?
+      description: Describe el resultado observado y el que esperabas.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Pasos para reproducir
+      placeholder: |
+        1. Abre…
+        2. Selecciona…
+        3. Pulsa…
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión de Rclone Lite
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Versión de Windows
+      options:
+        - Windows 11 64-bit
+        - Windows 10 64-bit
+        - Otra
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Registro relevante (opcional)
+      description: Elimina rutas privadas, direcciones de correo y cualquier credencial antes de compartir.
+      render: text

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentación de rclone
+    url: https://rclone.org/docs/
+    about: Consulta la documentación del motor de transferencias rclone.

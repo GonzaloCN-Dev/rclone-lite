@@ -1,0 +1,568 @@
+import { ScrollView, ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Backend } from "backend.slint";
+import { Icon, IconBtn, Btn, TextField, Check, Dropdown, Segmented, Badge, Sep, Spinner, FieldLabel, EmptyState } from "widgets.slint";
+
+component Modal inherits Rectangle {
+    in property <string> title;
+    in property <length> dlg-width: 520px;
+    in property <length> dlg-height: 0px;
+    callback close();
+
+    background: Theme.scrim;
+    TouchArea { }
+    Rectangle {
+        width: min(root.dlg-width, parent.width - 40px);
+        height: root.dlg-height > 0 ? min(root.dlg-height, parent.height - 40px) : card.preferred-height;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Theme.surface;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.border;
+        clip: true;
+        drop-shadow-blur: 30px;
+        drop-shadow-color: #00000080;
+        drop-shadow-offset-y: 8px;
+        TouchArea { }
+        card := VerticalLayout {
+            Rectangle {
+                height: 52px;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 10px;
+                    Text {
+                        text: root.title;
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    IconBtn {
+                        y: 11px;
+                        glyph: "\u{E711}";
+                        clicked => { root.close(); }
+                    }
+                }
+            }
+            Sep { }
+            @children
+        }
+    }
+}
+
+export component ConfirmDialog inherits Modal {
+    title: Backend.dialog-title;
+    dlg-width: 460px;
+    close => { Backend.dialog-cancel(); }
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        Text {
+            text: Backend.dialog-text;
+            font-size: 13px;
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        if Backend.dialog == "input": VerticalLayout {
+            spacing: 5px;
+            FieldLabel { text: Backend.dialog-hint; }
+            TextField {
+                value: Backend.dialog-input;
+                edited(t) => { Backend.dialog-input = t; }
+                accepted(t) => { Backend.dialog-input = t; Backend.dialog-accept(); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            Btn { text: "Cancelar"; clicked => { Backend.dialog-cancel(); } }
+            Btn {
+                text: Backend.dialog-ok;
+                kind: Backend.dialog-danger ? "danger" : "primary";
+                clicked => { Backend.dialog-accept(); }
+            }
+        }
+    }
+}
+
+export component JobDialog inherits Modal {
+    title: "Trabajo de sincronización";
+    dlg-width: 680px;
+    dlg-height: 700px;
+    close => { Backend.job-editing = false; }
+
+    VerticalLayout {
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                alignment: start;
+
+                VerticalLayout {
+                    spacing: 5px;
+                    FieldLabel { text: "Nombre del trabajo"; }
+                    TextField {
+                        value: Backend.job-form.name;
+                        placeholder: "Ej. Copia de fotos a Drive";
+                        edited(t) => { Backend.job-form.name = t; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 5px;
+                    HorizontalLayout {
+                        FieldLabel { text: "Origen"; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text {
+                            text: "Usar panel izquierdo";
+                            font-size: 11px;
+                            color: Theme.accent;
+                            TouchArea { clicked => { Backend.job-use-pane(0, true); } mouse-cursor: pointer; }
+                        }
+                    }
+                    TextField {
+                        value: Backend.job-form.source;
+                        mono: true;
+                        placeholder: "remoto:carpeta   o   C:/Carpeta";
+                        edited(t) => { Backend.job-form.source = t; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 5px;
+                    HorizontalLayout {
+                        FieldLabel { text: "Destino(s)  —  uno por línea (sincronización 1:N)"; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text {
+                            text: "Usar panel derecho";
+                            font-size: 11px;
+                            color: Theme.accent;
+                            TouchArea { clicked => { Backend.job-use-pane(1, false); } mouse-cursor: pointer; }
+                        }
+                    }
+                    TextField {
+                        value: Backend.job-form.dests;
+                        mono: true;
+                        multiline: true;
+                        placeholder: "remoto:carpeta";
+                        edited(t) => { Backend.job-form.dests = t; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 5px;
+                    FieldLabel { text: "Modo"; }
+                    Segmented {
+                        model: ["Copiar", "Sincronizar (espejo)", "Mover"];
+                        current-index: Backend.job-form.mode-index;
+                        selected(i) => { Backend.job-form.mode-index = i; }
+                    }
+                    Text {
+                        text: Backend.job-form.mode-index == 0 ? "Copia lo nuevo o modificado. Nunca borra nada en el destino."
+                            : Backend.job-form.mode-index == 1 ? "El destino queda idéntico al origen. Borra en el destino lo que no exista en el origen."
+                            : "Copia al destino y elimina los archivos del origen.";
+                        font-size: 11px;
+                        color: Backend.job-form.mode-index == 1 ? Theme.warning : Theme.text-dim;
+                        wrap: word-wrap;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 14px;
+                    VerticalLayout {
+                        spacing: 5px;
+                        FieldLabel { text: "Transferencias"; }
+                        TextField { value: Backend.job-form.transfers; edited(t) => { Backend.job-form.transfers = t; } }
+                    }
+                    VerticalLayout {
+                        spacing: 5px;
+                        FieldLabel { text: "Comprobaciones"; }
+                        TextField { value: Backend.job-form.checkers; edited(t) => { Backend.job-form.checkers = t; } }
+                    }
+                    VerticalLayout {
+                        spacing: 5px;
+                        FieldLabel { text: "Límite de velocidad"; }
+                        TextField { value: Backend.job-form.bwlimit; placeholder: "Ej. 2M"; edited(t) => { Backend.job-form.bwlimit = t; } }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 2px;
+                    Check { text: "Comparar por checksum (más lento, más preciso)"; checked: Backend.job-form.checksum; toggled(v) => { Backend.job-form.checksum = v; } }
+                    Check { text: "Comparar solo por tamaño"; checked: Backend.job-form.size-only; toggled(v) => { Backend.job-form.size-only = v; } }
+                    Check { text: "Omitir archivos que ya existen en el destino"; checked: Backend.job-form.ignore-existing; toggled(v) => { Backend.job-form.ignore-existing = v; } }
+                    Check { text: "Ejecutar siempre en modo simulación"; checked: Backend.job-form.dry-run; toggled(v) => { Backend.job-form.dry-run = v; } }
+                }
+                VerticalLayout {
+                    spacing: 5px;
+                    FieldLabel { text: "Filtros (uno por línea)  —  - *.tmp   ·   - node_modules/**   ·   + *.jpg"; }
+                    TextField {
+                        value: Backend.job-form.filters;
+                        mono: true;
+                        multiline: true;
+                        placeholder: "- *.tmp";
+                        edited(t) => { Backend.job-form.filters = t; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 5px;
+                    FieldLabel { text: "Parámetros adicionales de rclone"; }
+                    TextField {
+                        value: Backend.job-form.extra;
+                        mono: true;
+                        placeholder: "Ej. --max-age 7d";
+                        edited(t) => { Backend.job-form.extra = t; }
+                    }
+                }
+
+                Sep { }
+                Check {
+                    text: "Programar ejecución automática";
+                    checked: Backend.job-form.schedule-enabled;
+                    toggled(v) => { Backend.job-form.schedule-enabled = v; }
+                }
+                if Backend.job-form.schedule-enabled: HorizontalLayout {
+                    spacing: 14px;
+                    VerticalLayout {
+                        spacing: 5px;
+                        FieldLabel { text: "Frecuencia"; }
+                        Segmented {
+                            width: 230px;
+                            model: ["Cada X minutos", "Diario"];
+                            current-index: Backend.job-form.schedule-kind;
+                            selected(i) => { Backend.job-form.schedule-kind = i; }
+                        }
+                    }
+                    if Backend.job-form.schedule-kind == 0: VerticalLayout {
+                        spacing: 5px;
+                        FieldLabel { text: "Minutos"; }
+                        TextField { width: 110px; value: Backend.job-form.interval; edited(t) => { Backend.job-form.interval = t; } }
+                    }
+                    if Backend.job-form.schedule-kind == 1: VerticalLayout {
+                        spacing: 5px;
+                        FieldLabel { text: "Hora (HH:MM)"; }
+                        TextField { width: 110px; value: Backend.job-form.daily-time; edited(t) => { Backend.job-form.daily-time = t; } }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                if Backend.job-form.schedule-enabled: Text {
+                    text: "Los trabajos programados se ejecutan mientras Rclone Lite esté abierto.";
+                    font-size: 11px;
+                    color: Theme.text-dim;
+                }
+            }
+        }
+        Sep { }
+        Rectangle {
+            height: 58px;
+            background: Theme.surface2;
+            HorizontalLayout {
+                padding: 13px;
+                spacing: 8px;
+                alignment: end;
+                Btn { text: "Cancelar"; clicked => { Backend.job-editing = false; } }
+                Btn { text: "Guardar"; clicked => { Backend.job-save(); } }
+                Btn { text: "Guardar y ejecutar"; kind: "primary"; clicked => { Backend.job-save-run(); } }
+            }
+        }
+    }
+}
+
+export component RemoteWizard inherits Modal {
+    title: "Nuevo remoto";
+    dlg-width: 580px;
+    dlg-height: 640px;
+    close => { Backend.remote-cancel-create(); }
+
+    VerticalLayout {
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                alignment: start;
+                VerticalLayout {
+                    spacing: 5px;
+                    FieldLabel { text: "Tipo de almacenamiento"; }
+                    Dropdown {
+                        model: Backend.remote-types;
+                        current-index: Backend.remote-type-index;
+                        selected(i) => { Backend.remote-type-changed(i); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 5px;
+                    FieldLabel { text: "Nombre del remoto"; }
+                    TextField {
+                        value: Backend.remote-name-input;
+                        placeholder: "Ej. mi-drive (sin espacios ni dos puntos)";
+                        edited(t) => { Backend.remote-name-input = t; }
+                    }
+                }
+                if Backend.remote-help != "": Rectangle {
+                    background: Theme.accent-soft;
+                    border-radius: 8px;
+                    HorizontalLayout {
+                        padding: 12px;
+                        spacing: 10px;
+                        Icon { glyph: "\u{E946}"; color: Theme.accent; width: 20px; y: 0px; }
+                        Text {
+                            text: Backend.remote-help;
+                            font-size: 12px;
+                            color: Theme.text;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+                for f[i] in Backend.remote-fields: VerticalLayout {
+                    spacing: 5px;
+                    FieldLabel { text: f.label; }
+                    TextField {
+                        placeholder: f.hint;
+                        password: f.secret;
+                        edited(t) => { Backend.remote-field-edited(i, t); }
+                    }
+                }
+                if Backend.remote-error != "": Text {
+                    text: Backend.remote-error;
+                    font-size: 12px;
+                    color: Theme.danger;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        Sep { }
+        Rectangle {
+            height: 58px;
+            background: Theme.surface2;
+            HorizontalLayout {
+                padding: 13px;
+                spacing: 8px;
+                if Backend.remote-busy: HorizontalLayout {
+                    spacing: 10px;
+                    Spinner { y: 5px; size: 20px; }
+                    Text {
+                        text: "Creando… si se abre el navegador, autoriza el acceso.";
+                        font-size: 12px;
+                        color: Theme.text-dim;
+                        vertical-alignment: center;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { text: Backend.remote-busy ? "Cancelar" : "Cerrar"; clicked => { Backend.remote-cancel-create(); } }
+                Btn {
+                    text: "Crear remoto";
+                    kind: "primary";
+                    enabled: !Backend.remote-busy;
+                    clicked => { Backend.remote-create(); }
+                }
+            }
+        }
+    }
+}
+
+export component MountDialog inherits Modal {
+    title: "Montaje de unidad";
+    dlg-width: 540px;
+    close => { Backend.dialog = ""; }
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        VerticalLayout {
+            spacing: 5px;
+            FieldLabel { text: "Nombre"; }
+            TextField { value: Backend.mount-form.name; edited(t) => { Backend.mount-form.name = t; } }
+        }
+        VerticalLayout {
+            spacing: 5px;
+            FieldLabel { text: "Remoto y carpeta"; }
+            TextField { value: Backend.mount-form.spec; mono: true; placeholder: "remoto:carpeta"; edited(t) => { Backend.mount-form.spec = t; } }
+        }
+        VerticalLayout {
+            spacing: 5px;
+            FieldLabel { text: "Letra de unidad o carpeta"; }
+            HorizontalLayout {
+                spacing: 8px;
+                TextField { value: Backend.mount-form.mountpoint; mono: true; placeholder: "X:   o   C:/Montajes/Drive"; edited(t) => { Backend.mount-form.mountpoint = t; } }
+                Btn { text: "Carpeta..."; clicked => { Backend.mount-pick-folder(); } }
+            }
+        }
+        VerticalLayout {
+            spacing: 5px;
+            FieldLabel { text: "Caché de archivos"; }
+            Segmented {
+                model: ["Sin caché", "Mínima", "Escritura", "Completa"];
+                current-index: Backend.mount-form.cache-index;
+                selected(i) => { Backend.mount-form.cache-index = i; }
+            }
+            Text {
+                text: "«Completa» es la más compatible con programas de Windows.";
+                font-size: 11px;
+                color: Theme.text-dim;
+            }
+        }
+        Check { text: "Solo lectura"; checked: Backend.mount-form.read-only; toggled(v) => { Backend.mount-form.read-only = v; } }
+        Check { text: "Montar automáticamente al iniciar"; checked: Backend.mount-form.auto-mount; toggled(v) => { Backend.mount-form.auto-mount = v; } }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            Btn { text: "Cancelar"; clicked => { Backend.dialog = ""; } }
+            Btn { text: "Guardar"; kind: "primary"; clicked => { Backend.mount-save(); } }
+        }
+    }
+}
+
+component FilterChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    in property <color> tone;
+    callback toggled();
+    height: 28px;
+    width: lbl.preferred-width + 26px;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: root.on ? root.tone : Theme.border;
+    background: root.on ? root.tone.with-alpha(0.16) : transparent;
+    lbl := Text {
+        text: root.text;
+        font-size: 12px;
+        font-weight: 600;
+        color: root.on ? root.tone : Theme.text-dim;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea { mouse-cursor: pointer; clicked => { root.toggled(); } }
+}
+
+export component ComparePanel inherits Modal {
+    title: "Comparar carpetas";
+    dlg-width: 980px;
+    dlg-height: 680px;
+    close => { Backend.compare-close(); }
+
+    VerticalLayout {
+        Rectangle {
+            height: 44px;
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 12px;
+                Text {
+                    text: Backend.compare-left;
+                    font-family: "Consolas";
+                    font-size: 12px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text { text: "⇄"; font-size: 16px; color: Theme.text-faint; vertical-alignment: center; }
+                Text {
+                    text: Backend.compare-right;
+                    font-family: "Consolas";
+                    font-size: 12px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+        Sep { }
+        Rectangle {
+            height: 50px;
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 8px;
+                alignment: start;
+                FilterChip { y: 11px; text: "Solo izquierda"; tone: Theme.accent; on: Backend.cmp-show-left; toggled => { Backend.cmp-show-left = !Backend.cmp-show-left; Backend.compare-filter-changed(); } }
+                FilterChip { y: 11px; text: "Solo derecha"; tone: Theme.success; on: Backend.cmp-show-right; toggled => { Backend.cmp-show-right = !Backend.cmp-show-right; Backend.compare-filter-changed(); } }
+                FilterChip { y: 11px; text: "Diferentes"; tone: Theme.warning; on: Backend.cmp-show-diff; toggled => { Backend.cmp-show-diff = !Backend.cmp-show-diff; Backend.compare-filter-changed(); } }
+                FilterChip { y: 11px; text: "Iguales"; tone: Theme.text-dim; on: Backend.cmp-show-equal; toggled => { Backend.cmp-show-equal = !Backend.cmp-show-equal; Backend.compare-filter-changed(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { y: 9px; compact: true; text: "Seleccionar todo"; kind: "ghost"; clicked => { Backend.compare-select-all(true); } }
+                Btn { y: 9px; compact: true; text: "Ninguno"; kind: "ghost"; clicked => { Backend.compare-select-all(false); } }
+            }
+        }
+        Sep { }
+        Rectangle {
+            vertical-stretch: 1;
+            if Backend.compare-busy: VerticalLayout {
+                alignment: center;
+                spacing: 12px;
+                HorizontalLayout {
+                    alignment: center;
+                    Spinner { size: 28px; }
+                }
+                Text { text: "Comparando…"; horizontal-alignment: center; font-size: 13px; color: Theme.text-dim; }
+                HorizontalLayout {
+                    alignment: center;
+                    Btn { text: "Cancelar"; clicked => { Backend.compare-cancel(); } }
+                }
+            }
+            if !Backend.compare-busy && Backend.compare-rows.length == 0: VerticalLayout {
+                padding: 30px;
+                EmptyState {
+                    glyph: "\u{E73E}";
+                    title: "Sin resultados para mostrar";
+                    text: "Prueba a activar más filtros. Si ‘Iguales’ está desactivado y las carpetas coinciden, no habrá filas.";
+                }
+            }
+            if !Backend.compare-busy && Backend.compare-rows.length > 0: ListView {
+                for r[i] in Backend.compare-rows: Rectangle {
+                    height: 30px;
+                    background: r.selected ? Theme.selection : rt.has-hover ? Theme.hover : transparent;
+                    HorizontalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        spacing: 12px;
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            y: 7px;
+                            border-radius: 3px;
+                            border-width: 1.5px;
+                            border-color: r.selected ? Theme.accent : Theme.text-faint;
+                            background: r.selected ? Theme.accent : transparent;
+                        }
+                        Badge {
+                            y: 5px;
+                            width: 110px;
+                            text: r.label;
+                            tone: r.status == "-" ? Theme.accent : r.status == "+" ? Theme.success : r.status == "*" ? Theme.warning : r.status == "!" ? Theme.danger : Theme.text-faint;
+                        }
+                        Text {
+                            text: r.path;
+                            font-size: 12px;
+                            font-family: "Consolas";
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                    rt := TouchArea { clicked => { Backend.compare-toggle(i); } }
+                }
+            }
+        }
+        Sep { }
+        Rectangle {
+            height: 58px;
+            background: Theme.surface2;
+            HorizontalLayout {
+                padding: 13px;
+                spacing: 8px;
+                Text {
+                    text: Backend.compare-summary;
+                    font-size: 12px;
+                    color: Theme.text-dim;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Btn { text: "Copiar a la derecha"; icon: "\u{E72A}"; clicked => { Backend.compare-copy(true); } }
+                Btn { text: "Copiar a la izquierda"; icon: "\u{E72B}"; clicked => { Backend.compare-copy(false); } }
+                Btn { text: "Borrar izq."; kind: "danger"; clicked => { Backend.compare-delete(true); } }
+                Btn { text: "Borrar der."; kind: "danger"; clicked => { Backend.compare-delete(false); } }
+            }
+        }
+    }
+}

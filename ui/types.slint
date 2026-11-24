@@ -1,0 +1,104 @@
+export struct FileRow {
+    name: string,
+    size: string,
+    date: string,
+    is-dir: bool,
+    selected: bool,
+}
+
+export struct RemoteRow {
+    name: string,
+    kind: string,
+    detail: string,
+}
+
+export struct TransferRow {
+    id: string,
+    title: string,
+    detail: string,
+    progress: float,
+    speed: string,
+    state: string,
+    info: string,
+}
+
+export struct CompareRow {
+    path: string,
+    status: string,
+    label: string,
+    selected: bool,
+}
+
+export struct JobRow {
+    id: string,
+    name: string,
+    source: string,
+    dest: string,
+    mode: string,
+    schedule: string,
+    last-run: string,
+    status: string,
+    running: bool,
+}
+
+export struct HistoryRow {
+    time: string,
+    job: string,
+    route: string,
+    status: string,
+    size: string,
+    files: string,
+    duration: string,
+    trigger: string,
+    error: string,
+}
+
+export struct MountRow {
+    id: string,
+    name: string,
+    spec: string,
+    mountpoint: string,
+    state: string,
+    detail: string,
+}
+
+export struct LogRow {
+    time: string,
+    level: string,
+    text: string,
+}
+
+export struct FieldRow {
+    label: string,
+    hint: string,
+    secret: bool,
+}
+
+export struct JobForm {
+    name: string,
+    source: string,
+    dests: string,
+    mode-index: int,
+    transfers: string,
+    checkers: string,
+    dry-run: bool,
+    checksum: bool,
+    size-only: bool,
+    ignore-existing: bool,
+    bwlimit: string,
+    filters: string,
+    extra: string,
+    schedule-enabled: bool,
+    schedule-kind: int,
+    interval: string,
+    daily-time: string,
+}
+
+export struct MountForm {
+    name: string,
+    spec: string,
+    mountpoint: string,
+    cache-index: int,
+    read-only: bool,
+    auto-mount: bool,
+}

@@ -1,0 +1,21 @@
+name: Propuesta de función
+description: Sugiere una mejora concreta para Rclone Lite.
+title: "[Función]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: ¿Qué problema resolvería?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: ¿Cómo te gustaría que funcionara?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas (opcional)

@@ -1,0 +1,742 @@
+import { ScrollView, ListView, AboutSlint } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Backend } from "backend.slint";
+import { Icon, IconBtn, Btn, TextField, Check, Badge, Sep, EmptyState, Card, FieldLabel, Segmented } from "widgets.slint";
+
+component PageHeader inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    height: 64px;
+    HorizontalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.title;
+                font-size: 20px;
+                font-weight: 700;
+                color: Theme.text;
+            }
+            Text {
+                text: root.subtitle;
+                font-size: 12px;
+                color: Theme.text-dim;
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        @children
+    }
+}
+
+component Row inherits Rectangle {
+    in property <bool> selected;
+    callback clicked();
+    callback double-clicked();
+    background: root.selected ? Theme.selection : ta.has-hover ? Theme.hover : transparent;
+    @children
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        double-clicked => { root.double-clicked(); }
+    }
+}
+
+export component RemotesPage inherits Rectangle {
+    VerticalLayout {
+        PageHeader {
+            title: "Remotos";
+            subtitle: "Conexiones a la nube configuradas en rclone";
+            Btn {
+                y: 16px;
+                icon: "\u{E72C}";
+                text: "Actualizar";
+                clicked => { Backend.remotes-refresh(); }
+            }
+            Btn {
+                y: 16px;
+                icon: "\u{E710}";
+                text: "Nuevo remoto";
+                kind: "primary";
+                enabled: Backend.rclone-ok;
+                clicked => { Backend.remote-new(); }
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            Card {
+                x: 24px;
+                y: 0px;
+                width: parent.width - 48px;
+                height: parent.height - 24px;
+                VerticalLayout {
+                    if Backend.remotes.length > 0: Rectangle {
+                        height: 34px;
+                        background: Theme.surface2;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            Text { text: "NOMBRE"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 240px; vertical-alignment: center; }
+                            Text { text: "TIPO"; font-size: 11px; font-weight: 700; color: Theme.text-faint; vertical-alignment: center; }
+                        }
+                    }
+                    if Backend.remotes.length == 0: Rectangle {
+                        VerticalLayout {
+                            padding: 30px;
+                            EmptyState {
+                                glyph: "\u{E753}";
+                                title: "No hay remotos configurados";
+                                text: "Añade Google Drive, OneDrive, S3, Dropbox, SFTP y más de 70 servicios.";
+                            }
+                            HorizontalLayout {
+                                alignment: center;
+                                padding-top: 10px;
+                                Btn {
+                                    text: "Añadir mi primer remoto";
+                                    kind: "primary";
+                                    enabled: Backend.rclone-ok;
+                                    clicked => { Backend.remote-new(); }
+                                }
+                            }
+                        }
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for r[i] in Backend.remotes: Row {
+                            height: 48px;
+                            selected: i == Backend.remote-selected;
+                            clicked => { Backend.remote-select(i); }
+                            double-clicked => { Backend.remote-browse(i); }
+                            HorizontalLayout {
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                spacing: 12px;
+                                Icon {
+                                    width: 24px;
+                                    glyph: "\u{E753}";
+                                    color: Theme.accent;
+                                    font-size: 18px;
+                                }
+                                Text {
+                                    width: 204px;
+                                    text: r.name;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        Badge {
+                                            y: (parent.height - self.height) / 2;
+                                            text: r.kind;
+                                            tone: Theme.accent;
+                                        }
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: Theme.border;
+                            }
+                        }
+                    }
+                    Sep { }
+                    Rectangle {
+                        height: 54px;
+                        background: Theme.surface2;
+                        HorizontalLayout {
+                            padding: 11px;
+                            spacing: 8px;
+                            Btn {
+                                text: "Explorar";
+                                icon: "\u{E8B7}";
+                                enabled: Backend.remote-selected >= 0;
+                                clicked => { Backend.remote-browse(Backend.remote-selected); }
+                            }
+                            Btn {
+                                text: "Montar como unidad";
+                                icon: "\u{E8CE}";
+                                enabled: Backend.remote-selected >= 0;
+                                clicked => { Backend.remote-mount(); }
+                            }
+                            Btn {
+                                text: "Reconectar";
+                                icon: "\u{E895}";
+                                enabled: Backend.remote-selected >= 0;
+                                clicked => { Backend.remote-reconnect(); }
+                            }
+                            Text {
+                                text: Backend.remote-about;
+                                font-size: 12px;
+                                color: Theme.text-dim;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                            }
+                            Btn {
+                                text: "Eliminar";
+                                icon: "\u{E74D}";
+                                kind: "danger";
+                                enabled: Backend.remote-selected >= 0;
+                                clicked => { Backend.remote-delete(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component JobsPage inherits Rectangle {
+    VerticalLayout {
+        PageHeader {
+            title: "Trabajos";
+            subtitle: "Sincronizaciones guardadas, con programación automática";
+            Btn {
+                y: 16px;
+                icon: "\u{E896}";
+                text: "Importar";
+                clicked => { Backend.job-import(); }
+            }
+            Btn {
+                y: 16px;
+                icon: "\u{E898}";
+                text: "Exportar";
+                enabled: Backend.jobs.length > 0;
+                clicked => { Backend.job-export(); }
+            }
+            Btn {
+                y: 16px;
+                icon: "\u{E710}";
+                text: "Nuevo trabajo";
+                kind: "primary";
+                enabled: Backend.rclone-ok;
+                clicked => { Backend.job-new(); }
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            Card {
+                x: 24px;
+                width: parent.width - 48px;
+                height: parent.height - 24px;
+                VerticalLayout {
+                    if Backend.jobs.length == 0: Rectangle {
+                        VerticalLayout {
+                            padding: 30px;
+                            EmptyState {
+                                glyph: "\u{E8F1}";
+                                title: "Aún no tienes trabajos";
+                                text: "Un trabajo guarda origen, destino y opciones para repetir una copia o sincronización con un clic o de forma programada.";
+                            }
+                        }
+                    }
+                    if Backend.jobs.length > 0: Rectangle {
+                        height: 34px;
+                        background: Theme.surface2;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            spacing: 10px;
+                            Text { text: "TRABAJO"; font-size: 11px; font-weight: 700; color: Theme.text-faint; horizontal-stretch: 2; vertical-alignment: center; }
+                            Text { text: "ORIGEN → DESTINO"; font-size: 11px; font-weight: 700; color: Theme.text-faint; horizontal-stretch: 3; vertical-alignment: center; }
+                            Text { text: "PROGRAMACIÓN"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 150px; vertical-alignment: center; }
+                            Text { text: "ÚLTIMA EJECUCIÓN"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 150px; vertical-alignment: center; }
+                        }
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for j[i] in Backend.jobs: Row {
+                            height: 56px;
+                            selected: i == Backend.job-selected;
+                            clicked => { Backend.job-select(i); }
+                            double-clicked => { Backend.job-edit(); }
+                            HorizontalLayout {
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                spacing: 10px;
+                                VerticalLayout {
+                                    horizontal-stretch: 2;
+                                    alignment: center;
+                                    spacing: 3px;
+                                    Text { text: j.name; font-size: 14px; font-weight: 600; color: Theme.text; overflow: elide; }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        Badge {
+                                            text: j.mode;
+                                            tone: j.mode == "Sincronizar" ? Theme.warning : Theme.accent;
+                                        }
+                                    }
+                                }
+                                Text {
+                                    horizontal-stretch: 3;
+                                    text: j.source + "  →  " + j.dest;
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                    color: Theme.text-dim;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                Text { width: 150px; text: j.schedule; font-size: 12px; color: Theme.text-dim; vertical-alignment: center; overflow: elide; }
+                                HorizontalLayout {
+                                    width: 150px;
+                                    spacing: 6px;
+                                    Icon {
+                                        width: 16px;
+                                        visible: j.status != "";
+                                        glyph: j.status == "ok" ? "\u{E73E}" : "\u{E783}";
+                                        color: j.status == "ok" ? Theme.success : Theme.danger;
+                                        font-size: 13px;
+                                    }
+                                    Text { text: j.running ? "En curso..." : j.last-run; font-size: 12px; color: j.running ? Theme.accent : Theme.text-dim; vertical-alignment: center; overflow: elide; }
+                                }
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: Theme.border;
+                            }
+                        }
+                    }
+                    Sep { }
+                    Rectangle {
+                        height: 54px;
+                        background: Theme.surface2;
+                        HorizontalLayout {
+                            padding: 11px;
+                            spacing: 8px;
+                            Btn {
+                                text: "Ejecutar";
+                                icon: "\u{E768}";
+                                kind: "primary";
+                                enabled: Backend.job-selected >= 0 && Backend.rclone-ok;
+                                clicked => { Backend.job-run(false); }
+                            }
+                            Btn {
+                                text: "Simular";
+                                icon: "\u{E7B3}";
+                                enabled: Backend.job-selected >= 0 && Backend.rclone-ok;
+                                clicked => { Backend.job-run(true); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            Btn {
+                                text: "Editar";
+                                icon: "\u{E70F}";
+                                enabled: Backend.job-selected >= 0;
+                                clicked => { Backend.job-edit(); }
+                            }
+                            Btn {
+                                text: "Duplicar";
+                                icon: "\u{E8C8}";
+                                enabled: Backend.job-selected >= 0;
+                                clicked => { Backend.job-duplicate(); }
+                            }
+                            Btn {
+                                text: "Eliminar";
+                                icon: "\u{E74D}";
+                                kind: "danger";
+                                enabled: Backend.job-selected >= 0;
+                                clicked => { Backend.job-delete(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component MountsPage inherits Rectangle {
+    VerticalLayout {
+        PageHeader {
+            title: "Montajes";
+            subtitle: "Usa la nube como una unidad más del Explorador de Windows";
+            Btn {
+                y: 16px;
+                icon: "\u{E710}";
+                text: "Nuevo montaje";
+                kind: "primary";
+                enabled: Backend.rclone-ok;
+                clicked => { Backend.mount-new(); }
+            }
+        }
+        if !Backend.winfsp-ok: Rectangle {
+            height: 56px;
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 8px;
+                Rectangle {
+                    background: Theme.warning.with-alpha(0.15);
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Theme.warning;
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        Icon { glyph: "\u{E7BA}"; color: Theme.warning; width: 22px; }
+                        Text {
+                            text: "Para montar unidades necesitas instalar WinFsp (gratuito).";
+                            font-size: 13px;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Btn {
+                            y: 10px;
+                            text: "Descargar WinFsp";
+                            compact: true;
+                            clicked => { Backend.winfsp-download(); }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            Card {
+                x: 24px;
+                width: parent.width - 48px;
+                height: parent.height - 24px;
+                VerticalLayout {
+                    if Backend.mounts.length == 0: Rectangle {
+                        VerticalLayout {
+                            padding: 30px;
+                            EmptyState {
+                                glyph: "\u{E8CE}";
+                                title: "Sin montajes";
+                                text: "Crea un montaje para acceder a tus archivos en la nube desde cualquier programa.";
+                            }
+                        }
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for m[i] in Backend.mounts: Row {
+                            height: 58px;
+                            selected: i == Backend.mount-selected;
+                            clicked => { Backend.mount-select(i); }
+                            HorizontalLayout {
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                spacing: 12px;
+                                Icon {
+                                    width: 24px;
+                                    glyph: "\u{E8CE}";
+                                    color: m.state == "mounted" ? Theme.success : Theme.text-faint;
+                                    font-size: 18px;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 3px;
+                                    Text { text: m.name; font-size: 14px; font-weight: 600; color: Theme.text; overflow: elide; }
+                                    Text { text: m.spec + "  →  " + m.mountpoint; font-family: "Consolas"; font-size: 12px; color: Theme.text-dim; overflow: elide; }
+                                }
+                                Badge {
+                                    y: (parent.height - self.height) / 2;
+                                    text: m.state == "mounted" ? "Montado" : m.state == "starting" ? "Montando..." : m.state == "error" ? "Error" : "Desmontado";
+                                    tone: m.state == "mounted" ? Theme.success : m.state == "starting" ? Theme.warning : m.state == "error" ? Theme.danger : Theme.text-faint;
+                                }
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: Theme.border;
+                            }
+                        }
+                    }
+                    Sep { }
+                    Rectangle {
+                        height: 54px;
+                        background: Theme.surface2;
+                        HorizontalLayout {
+                            padding: 11px;
+                            spacing: 8px;
+                            Btn {
+                                text: Backend.mount-selected >= 0 && Backend.mounts[Backend.mount-selected].state != "unmounted" && Backend.mounts[Backend.mount-selected].state != "error" ? "Desmontar" : "Montar";
+                                icon: "\u{E768}";
+                                kind: "primary";
+                                enabled: Backend.mount-selected >= 0;
+                                clicked => { Backend.mount-toggle(); }
+                            }
+                            Btn {
+                                text: "Abrir";
+                                icon: "\u{E8B7}";
+                                enabled: Backend.mount-selected >= 0 && Backend.mounts[Backend.mount-selected].state == "mounted";
+                                clicked => { Backend.mount-open(); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            Btn {
+                                text: "Eliminar";
+                                icon: "\u{E74D}";
+                                kind: "danger";
+                                enabled: Backend.mount-selected >= 0;
+                                clicked => { Backend.mount-delete(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component HistoryPage inherits Rectangle {
+    VerticalLayout {
+        PageHeader {
+            title: "Historial";
+            subtitle: "Resultado de todas las operaciones ejecutadas";
+            Btn {
+                y: 16px;
+                icon: "\u{E74D}";
+                text: "Borrar historial";
+                enabled: Backend.history.length > 0;
+                clicked => { Backend.history-clear(); }
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            Card {
+                x: 24px;
+                width: parent.width - 48px;
+                height: parent.height - 24px;
+                VerticalLayout {
+                    if Backend.history.length == 0: Rectangle {
+                        VerticalLayout {
+                            padding: 30px;
+                            EmptyState {
+                                glyph: "\u{E81C}";
+                                title: "Historial vacío";
+                                text: "Cuando ejecutes copias o sincronizaciones, quedarán registradas aquí.";
+                            }
+                        }
+                    }
+                    if Backend.history.length > 0: Rectangle {
+                        height: 34px;
+                        background: Theme.surface2;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            spacing: 10px;
+                            Text { text: "FECHA"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 120px; vertical-alignment: center; }
+                            Text { text: "TRABAJO / RUTA"; font-size: 11px; font-weight: 700; color: Theme.text-faint; horizontal-stretch: 1; vertical-alignment: center; }
+                            Text { text: "ESTADO"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 90px; vertical-alignment: center; }
+                            Text { text: "TAMAÑO"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 80px; vertical-alignment: center; horizontal-alignment: right; }
+                            Text { text: "ARCHIVOS"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 70px; vertical-alignment: center; horizontal-alignment: right; }
+                            Text { text: "DURACIÓN"; font-size: 11px; font-weight: 700; color: Theme.text-faint; width: 90px; vertical-alignment: center; horizontal-alignment: right; }
+                        }
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for h[i] in Backend.history: Rectangle {
+                            height: h.error != "" ? 62px : 48px;
+                            HorizontalLayout {
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                spacing: 10px;
+                                Text { width: 120px; text: h.time; font-size: 12px; color: Theme.text-dim; vertical-alignment: center; }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text { text: h.job + (h.trigger == "scheduled" ? "  (programado)" : ""); font-size: 13px; font-weight: 600; color: Theme.text; overflow: elide; }
+                                    Text { text: h.route; font-family: "Consolas"; font-size: 11px; color: Theme.text-faint; overflow: elide; }
+                                    if h.error != "": Text { text: h.error; font-size: 11px; color: Theme.danger; overflow: elide; }
+                                }
+                                HorizontalLayout {
+                                    width: 90px;
+                                    alignment: start;
+                                    Badge {
+                                        y: (parent.height - self.height) / 2;
+                                        text: h.status == "ok" ? "Correcto" : h.status == "cancelled" ? "Cancelado" : "Error";
+                                        tone: h.status == "ok" ? Theme.success : h.status == "cancelled" ? Theme.warning : Theme.danger;
+                                    }
+                                }
+                                Text { width: 80px; text: h.size; font-size: 12px; color: Theme.text-dim; vertical-alignment: center; horizontal-alignment: right; }
+                                Text { width: 70px; text: h.files; font-size: 12px; color: Theme.text-dim; vertical-alignment: center; horizontal-alignment: right; }
+                                Text { width: 90px; text: h.duration; font-size: 12px; color: Theme.text-dim; vertical-alignment: center; horizontal-alignment: right; }
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: Theme.border;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SettingsPage inherits Rectangle {
+    VerticalLayout {
+        PageHeader {
+            title: "Ajustes";
+            subtitle: "Preferencias de la aplicación y del motor rclone";
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 24px;
+                spacing: 16px;
+                alignment: start;
+
+                Card {
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 12px;
+                        Text { text: "Motor rclone"; font-size: 15px; font-weight: 700; color: Theme.text; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Icon {
+                                width: 20px;
+                                glyph: Backend.rclone-ok ? "\u{E73E}" : "\u{E783}";
+                                color: Backend.rclone-ok ? Theme.success : Theme.danger;
+                            }
+                            Text {
+                                text: Backend.rclone-ok ? Backend.rclone-version : "rclone no encontrado. Instálalo o indica la ruta de rclone.exe";
+                                font-size: 13px;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                            }
+                        }
+                        FieldLabel { text: "Ruta de rclone.exe"; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            TextField {
+                                value: Backend.set-rclone-path;
+                                mono: true;
+                                placeholder: "Automática (se detecta sola)";
+                                edited(t) => { Backend.set-rclone-path = t; }
+                            }
+                            Btn { text: "Examinar..."; clicked => { Backend.settings-browse(); } }
+                            Btn { text: "Detectar"; clicked => { Backend.settings-detect(); } }
+                        }
+                    }
+                }
+
+                Card {
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 12px;
+                        Text { text: "Transferencias"; font-size: 15px; font-weight: 700; color: Theme.text; }
+                        HorizontalLayout {
+                            spacing: 14px;
+                            VerticalLayout {
+                                spacing: 5px;
+                                FieldLabel { text: "Transferencias simultáneas"; }
+                                TextField { value: Backend.set-transfers; edited(t) => { Backend.set-transfers = t; } }
+                            }
+                            VerticalLayout {
+                                spacing: 5px;
+                                FieldLabel { text: "Comprobaciones simultáneas"; }
+                                TextField { value: Backend.set-checkers; edited(t) => { Backend.set-checkers = t; } }
+                            }
+                            VerticalLayout {
+                                spacing: 5px;
+                                FieldLabel { text: "Límite de velocidad"; }
+                                TextField { value: Backend.set-bwlimit; placeholder: "Ej. 2M, 500K"; edited(t) => { Backend.set-bwlimit = t; } }
+                            }
+                        }
+                        FieldLabel { text: "Parámetros adicionales de rclone"; }
+                        TextField {
+                            value: Backend.set-extra;
+                            mono: true;
+                            placeholder: "Ej. --drive-chunk-size 64M";
+                            edited(t) => { Backend.set-extra = t; }
+                        }
+                    }
+                }
+
+                Card {
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 8px;
+                        Text { text: "Aplicación"; font-size: 15px; font-weight: 700; color: Theme.text; }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text { text: "Tema"; font-size: 13px; color: Theme.text; vertical-alignment: center; width: 120px; }
+                            Segmented {
+                                width: 200px;
+                                model: ["Oscuro", "Claro"];
+                                current-index: Theme.dark ? 0 : 1;
+                                selected(i) => { Backend.theme-changed(i == 0); }
+                            }
+                        }
+                        Check {
+                            text: "Pedir confirmación antes de borrar";
+                            checked: Backend.set-confirm-delete;
+                            toggled(v) => { Backend.set-confirm-delete = v; }
+                        }
+                        Check {
+                            text: "Avisar con una notificación de Windows al terminar una operación";
+                            checked: Backend.set-notify-done;
+                            toggled(v) => { Backend.set-notify-done = v; }
+                        }
+                        Check {
+                            text: "Al cerrar la ventana, seguir en segundo plano (bandeja del sistema)";
+                            checked: Backend.set-minimize-tray;
+                            toggled(v) => { Backend.set-minimize-tray = v; }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Btn { text: "Guardar ajustes"; kind: "primary"; clicked => { Backend.settings-apply(); } }
+                    Btn { text: "Abrir carpeta de datos"; icon: "\u{E8B7}"; clicked => { Backend.open-data-folder(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { text: "Sitio de rclone"; kind: "ghost"; clicked => { Backend.open-rclone-site(); } }
+                }
+                Card {
+                    VerticalLayout {
+                        padding: 18px;
+                        spacing: 6px;
+                        Text { text: "Acerca de"; font-size: 15px; font-weight: 700; color: Theme.text; }
+                        HorizontalLayout {
+                            spacing: 16px;
+                            VerticalLayout {
+                                spacing: 6px;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: "Rclone Lite " + Backend.app-version;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Theme.text;
+                                }
+                                Text {
+                                    text: "Desarrollado por Gonzalo Cruz Nuñez";
+                                    font-size: 13px;
+                                    color: Theme.accent;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: "Software libre y gratuito, construido sobre rclone (MIT) con C++ y Slint.";
+                                    font-size: 12px;
+                                    color: Theme.text-faint;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            AboutSlint {
+                                width: 150px;
+                                height: 80px;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
