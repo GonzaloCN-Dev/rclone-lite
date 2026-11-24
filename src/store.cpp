@@ -31,6 +31,7 @@ json options_to_json(const TransferOptions &o)
              { "checksum", o.checksum },
              { "size_only", o.size_only },
              { "ignore_existing", o.ignore_existing },
+             { "update_existing", o.update_existing },
              { "bwlimit", o.bwlimit },
              { "filters", o.filters },
              { "extra_flags", o.extra_flags } };
@@ -48,6 +49,7 @@ TransferOptions options_from_json(const json &j)
     o.checksum = jv(j, "checksum", o.checksum);
     o.size_only = jv(j, "size_only", o.size_only);
     o.ignore_existing = jv(j, "ignore_existing", o.ignore_existing);
+    o.update_existing = jv(j, "update_existing", o.update_existing);
     o.bwlimit = jv(j, "bwlimit", o.bwlimit);
     o.filters = jv(j, "filters", o.filters);
     o.extra_flags = jv(j, "extra_flags", o.extra_flags);
@@ -255,6 +257,7 @@ void Store::load()
         settings.minimize_to_tray = jv(j, "minimize_to_tray", false);
         settings.auto_update = jv(j, "auto_update", true);
         settings.auto_tune = jv(j, "auto_tune", true);
+        settings.update_existing = jv(j, "update_existing", false);
         settings.bwlimit = jv(j, "bwlimit", "");
         settings.extra_flags = jv(j, "extra_flags", "");
     }
@@ -318,6 +321,7 @@ bool Store::save() const
                { "minimize_to_tray", settings.minimize_to_tray },
                { "auto_update", settings.auto_update },
                { "auto_tune", settings.auto_tune },
+               { "update_existing", settings.update_existing },
                { "bwlimit", settings.bwlimit },
                { "extra_flags", settings.extra_flags } };
     put(L"settings.json", s.dump(2, ' ', false, json::error_handler_t::replace));

@@ -189,6 +189,7 @@ export component JobDialog inherits Modal {
                     Check { text: "Comparar por checksum (más lento, más preciso)"; checked: Backend.job-form.checksum; toggled(v) => { Backend.job-form.checksum = v; } }
                     Check { text: "Comparar solo por tamaño"; checked: Backend.job-form.size-only; toggled(v) => { Backend.job-form.size-only = v; } }
                     Check { text: "Omitir archivos que ya existen en el destino"; checked: Backend.job-form.ignore-existing; toggled(v) => { Backend.job-form.ignore-existing = v; } }
+                    Check { text: "No sobrescribir archivos más nuevos del destino"; checked: Backend.job-form.update-existing; toggled(v) => { Backend.job-form.update-existing = v; } }
                     Check { text: "Ejecutar siempre en modo simulación"; checked: Backend.job-form.dry-run; toggled(v) => { Backend.job-form.dry-run = v; } }
                 }
                 VerticalLayout {

@@ -18,6 +18,7 @@ struct Settings {
     bool minimize_to_tray = false;
     bool auto_update = true;
     bool auto_tune = true;
+    bool update_existing = false;
     std::string bwlimit;
     std::string extra_flags;
 };

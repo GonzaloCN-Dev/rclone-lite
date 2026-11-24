@@ -97,13 +97,13 @@ component ExplorerPage inherits Rectangle {
     VerticalLayout {
         // Action bar
         Rectangle {
-            height: 70px;
-            HorizontalLayout {
-                padding-left: 14px;
-                padding-right: 14px;
-                padding-top: 8px;
-                padding-bottom: 8px;
-                spacing: 4px;
+            height: 90px;
+            VerticalLayout {
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    padding-top: 8px;
+                    spacing: 4px;
                 ToolBtn {
                     glyph: "\u{E72A}";
                     text: "Copiar →";
@@ -129,14 +129,15 @@ component ExplorerPage inherits Rectangle {
                 ToolBtn { glyph: "\u{E8AC}"; text: "Renombrar"; enabled: Backend.rclone-ok; clicked => { Backend.rename-selected(); } }
                 ToolBtn { glyph: "\u{E74D}"; text: "Eliminar"; enabled: Backend.rclone-ok; clicked => { Backend.delete-selected(); } }
                 ToolBtn { glyph: "\u{E71B}"; text: "Copiar enlace"; enabled: Backend.rclone-ok; clicked => { Backend.copy-link(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
                 Text {
-                    horizontal-stretch: 1;
-                    text: "F2 Renombrar · F5 Copiar · F6 Mover · F7 Nueva carpeta · F8 Eliminar";
+                    height: 16px;
+                    text: "Atajos: F2 renombrar · F5 copiar · F6 mover · F7 carpeta nueva · F8 eliminar";
                     font-size: 10px;
                     color: Theme.text-faint;
-                    horizontal-alignment: right;
+                    horizontal-alignment: center;
                     vertical-alignment: center;
-                    overflow: elide;
                 }
             }
         }
@@ -207,7 +208,8 @@ export component AppWindow inherits Window {
     keyboard_scope := FocusScope {
         init => { self.focus(); }
         capture-key-pressed(event) => {
-            if Backend.page == 0 && Backend.dialog == "" && !Backend.job-editing && !Backend.compare-open {
+            if Backend.page == 0 && Backend.dialog == "" && !Backend.job-editing && !Backend.compare-open
+                    && !Backend.explorer-text-input-focused {
                 if event.text == Key.F2 {
                     Backend.rename-selected();
                     EventResult.accept
@@ -258,13 +260,13 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
-                    NavItem { glyph: "\u{E8B7}"; text: "Explorador"; active: Backend.page == 0; clicked => { Backend.page = 0; } }
-                    NavItem { glyph: "\u{E753}"; text: "Remotos"; active: Backend.page == 1; badge: Backend.remotes.length; clicked => { Backend.page = 1; } }
-                    NavItem { glyph: "\u{E8F1}"; text: "Trabajos"; active: Backend.page == 2; badge: Backend.jobs.length; clicked => { Backend.page = 2; } }
-                    NavItem { glyph: "\u{E8CE}"; text: "Montajes"; active: Backend.page == 3; clicked => { Backend.page = 3; } }
-                    NavItem { glyph: "\u{E81C}"; text: "Historial"; active: Backend.page == 4; clicked => { Backend.page = 4; } }
+                    NavItem { glyph: "\u{E8B7}"; text: "Explorador"; active: Backend.page == 0; clicked => { Backend.explorer-text-input-focused = false; Backend.page = 0; } }
+                    NavItem { glyph: "\u{E753}"; text: "Remotos"; active: Backend.page == 1; badge: Backend.remotes.length; clicked => { Backend.explorer-text-input-focused = false; Backend.page = 1; } }
+                    NavItem { glyph: "\u{E8F1}"; text: "Trabajos"; active: Backend.page == 2; badge: Backend.jobs.length; clicked => { Backend.explorer-text-input-focused = false; Backend.page = 2; } }
+                    NavItem { glyph: "\u{E8CE}"; text: "Montajes"; active: Backend.page == 3; clicked => { Backend.explorer-text-input-focused = false; Backend.page = 3; } }
+                    NavItem { glyph: "\u{E81C}"; text: "Historial"; active: Backend.page == 4; clicked => { Backend.explorer-text-input-focused = false; Backend.page = 4; } }
                     Rectangle { vertical-stretch: 1; }
-                    NavItem { glyph: "\u{E713}"; text: "Ajustes"; active: Backend.page == 5; clicked => { Backend.page = 5; } }
+                    NavItem { glyph: "\u{E713}"; text: "Ajustes"; active: Backend.page == 5; clicked => { Backend.explorer-text-input-focused = false; Backend.page = 5; } }
                     Rectangle {
                         height: 44px;
                         VerticalLayout {
@@ -296,7 +298,7 @@ export component AppWindow inherits Window {
             // Content
             Rectangle {
                 horizontal-stretch: 1;
-                if Backend.page == 0: ExplorerPage { }
+            if Backend.page == 0: ExplorerPage { }
                 if Backend.page == 1: RemotesPage { }
                 if Backend.page == 2: JobsPage { }
                 if Backend.page == 3: MountsPage { }
@@ -321,7 +323,7 @@ export component AppWindow inherits Window {
                             overflow: elide;
                         }
                         Rectangle { horizontal-stretch: 1; }
-                        Btn { y: 6px; compact: true; text: "Ir a Ajustes"; clicked => { Backend.page = 5; } }
+                        Btn { y: 6px; compact: true; text: "Ir a Ajustes"; clicked => { Backend.explorer-text-input-focused = false; Backend.page = 5; } }
                     }
                 }
             }

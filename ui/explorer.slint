@@ -90,7 +90,8 @@ export component Pane inherits Rectangle {
                     glyph: "\u{E74A}";
                     clicked => { Backend.pane-up(root.side); }
                 }
-                TextField {
+                path-input := TextField {
+                    changed has-focus => { Backend.explorer-text-input-focused = path-input.has-focus; }
                     value: root.path;
                     mono: true;
                     placeholder: "Ruta (ej. carpeta/subcarpeta)";

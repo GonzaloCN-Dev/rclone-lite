@@ -861,6 +861,7 @@ TransferOptions Controller::base_options() const
     TransferOptions o;
     o.transfers = store_.settings.transfers;
     o.checkers = store_.settings.checkers;
+    o.update_existing = store_.settings.update_existing;
     o.bwlimit = store_.settings.bwlimit;
     o.extra_flags = store_.settings.extra_flags;
     return o;
@@ -868,6 +869,7 @@ TransferOptions Controller::base_options() const
 
 TransferOptions Controller::with_defaults(TransferOptions o) const
 {
+    o.update_existing = o.update_existing || store_.settings.update_existing;
     if (trim(o.bwlimit).empty())
         o.bwlimit = store_.settings.bwlimit;
     if (!trim(store_.settings.extra_flags).empty())
@@ -2166,6 +2168,7 @@ void Controller::open_job_form(const Job *job, bool from_panes)
     f.checksum = o.checksum;
     f.size_only = o.size_only;
     f.ignore_existing = o.ignore_existing;
+    f.update_existing = o.update_existing;
     f.bwlimit = S(job ? o.bwlimit : "");
     f.filters = S(o.filters);
     f.extra = S(job ? o.extra_flags : "");
@@ -2204,6 +2207,7 @@ bool Controller::save_job_from_form(std::string &id_out)
     j.options.checksum = f.checksum;
     j.options.size_only = f.size_only;
     j.options.ignore_existing = f.ignore_existing;
+    j.options.update_existing = f.update_existing;
     j.options.bwlimit = trim(T(f.bwlimit));
     j.options.filters = trim(T(f.filters));
     j.options.extra_flags = trim(T(f.extra));
@@ -2597,6 +2601,7 @@ void Controller::load_settings_into_ui()
     B().set_set_minimize_tray(s.minimize_to_tray);
     B().set_set_auto_update(s.auto_update);
     B().set_set_auto_tune(s.auto_tune);
+    B().set_set_update_existing(s.update_existing);
     rc_.set_auto_tune(s.auto_tune);
     ui_->global<Theme>().set_dark(s.dark_theme);
 }
@@ -2614,6 +2619,7 @@ void Controller::apply_settings()
     s.minimize_to_tray = B().get_set_minimize_tray();
     s.auto_update = B().get_set_auto_update();
     s.auto_tune = B().get_set_auto_tune();
+    s.update_existing = B().get_set_update_existing();
     rc_.set_auto_tune(s.auto_tune);
     persist();
     load_settings_into_ui();

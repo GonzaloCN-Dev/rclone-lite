@@ -47,6 +47,17 @@ int main()
     require(!is_auth_error("quota exceeded"), "quota errors are not auth errors");
     require(is_oauth_type("drive") && is_oauth_type("onedrive") && !is_oauth_type("s3"),
             "only browser OAuth backends are eligible for reauthentication");
+    Rclone rclone;
+    TransferOptions update_options;
+    update_options.update_existing = true;
+    const auto update_flags = rclone.common_flags(update_options, nullptr);
+    require(std::find(update_flags.begin(), update_flags.end(), "--update") != update_flags.end(),
+            "update conflict policy passes --update to rclone");
+    update_options.ignore_existing = true;
+    const auto ignore_flags = rclone.common_flags(update_options, nullptr);
+    require(std::find(ignore_flags.begin(), ignore_flags.end(), "--ignore-existing") != ignore_flags.end() &&
+                    std::find(ignore_flags.begin(), ignore_flags.end(), "--update") == ignore_flags.end(),
+            "ignore-existing takes precedence over update mode");
 
     Store store;
     std::vector<Job> jobs;
@@ -82,7 +93,9 @@ int main()
     first.name = "Known good";
     first.source = "C:/source";
     first.destinations = { "D:/backup" };
+    first.options.update_existing = true;
     persisted.jobs.push_back(first);
+    persisted.settings.update_existing = true;
     require(persisted.save(), "initial store save succeeds");
     persisted.jobs[0].name = "Second version";
     require(persisted.save(), "updated store save succeeds and creates backup");
@@ -94,6 +107,8 @@ int main()
     recovered.load();
     require(recovered.jobs.size() == 1 && recovered.jobs[0].name == "Known good",
             "corrupt jobs file recovers the last valid backup");
+    require(recovered.jobs[0].options.update_existing && recovered.settings.update_existing,
+            "update conflict policy persists for jobs and application defaults");
     require(!recovered.warnings.empty() &&
                     std::filesystem::exists(data_root / L"RcloneLite" / L"jobs.json.corrupt"),
             "store recovery reports and preserves the damaged file");

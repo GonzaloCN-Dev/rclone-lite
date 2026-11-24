@@ -20,7 +20,7 @@
 ## Review Focus
 
 - Dialogs and comparison overlay are open: explorer shortcuts must not fire.
-- A text field has focus: shortcuts must not consume ordinary typing/editing keys.
+- The explorer path field has focus: function-key shortcuts must not override input actions.
 - No files are selected: controller validation and feedback remain in effect.
 - The active pane changes: copy/move must use the selected active pane as source and the opposite pane as destination.
 - Delete is invoked by shortcut: existing confirmation must remain.
@@ -38,8 +38,8 @@
 - Consume the existing copy, move, rename, delete, and new-folder backend callbacks.
 - Function-key mappings: F2 rename, F5 copy to the opposite pane, F6 move to the opposite pane, F7 new folder, F8 delete.
 
-- [ ] Add scoped Slint key bindings that are active only on the explorer page with no modal or comparison overlay.
-- [ ] Route actions through existing backend callbacks, deriving direction from `Backend.active-side`.
-- [ ] Add concise in-product shortcut discoverability without changing toolbar action semantics.
-- [ ] Run `build.bat` and CTest; verify delete still invokes its existing confirmation.
-- [ ] Commit and push this feature separately to the current branch.
+- [x] Add scoped Slint key bindings that are active only on the explorer page with no modal or comparison overlay.
+- [x] Route actions through existing backend callbacks, deriving direction from `Backend.active-side`.
+- [x] Show the shortcut legend on its own toolbar row so narrow windows do not truncate it.
+- [x] Run `build.bat` and CTest; verify delete still invokes its existing confirmation.
+- [x] Commit and push this feature separately to the current branch.

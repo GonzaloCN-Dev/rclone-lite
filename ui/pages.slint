@@ -668,6 +668,11 @@ export component SettingsPage inherits Rectangle {
                             checked: Backend.set-auto-tune;
                             toggled(v) => { Backend.set-auto-tune = v; }
                         }
+                        Check {
+                            text: "Por defecto, no sobrescribir archivos más nuevos que el origen";
+                            checked: Backend.set-update-existing;
+                            toggled(v) => { Backend.set-update-existing = v; }
+                        }
                     }
                 }
 

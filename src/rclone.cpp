@@ -474,6 +474,8 @@ std::vector<std::string> Rclone::common_flags(const TransferOptions &opt,
         a.push_back("--size-only");
     if (opt.ignore_existing)
         a.push_back("--ignore-existing");
+    else if (opt.update_existing)
+        a.push_back("--update");
     if (!opt.files_from.empty())
         a.push_back("--files-from-raw=" + opt.files_from);
     if (!trim(opt.bwlimit).empty())

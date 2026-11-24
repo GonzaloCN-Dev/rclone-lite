@@ -61,6 +61,7 @@ struct TransferOptions {
     bool checksum = false;
     bool size_only = false;
     bool ignore_existing = false;
+    bool update_existing = false;
     std::string bwlimit;       // e.g. "2M"
     std::string filters;       // newline separated rclone filter rules (e.g. "- *.tmp")
     std::string extra_flags;   // free form flags separated by spaces
