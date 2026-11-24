@@ -289,10 +289,7 @@ private:
     void cancel_create_remote();
     void delete_remote();
     void reconnect_remote();
-    void refresh_drive_ui();
-    void note_throttle(const std::shared_ptr<Task> &t, const std::string &src, const std::string &dst);
-    void select_drive_remote(int i);
-    void save_drive_creds();
+    void note_throttle(const std::shared_ptr<Task> &t);
 
     // ---- jobs
     void refresh_jobs();
@@ -345,9 +342,6 @@ private:
     std::vector<std::string> edit_initial_;
     std::vector<bool> edit_secret_;
     int about_gen_ = 0;
-    std::vector<std::string> drive_names_;
-    std::shared_ptr<slint::VectorModel<slint::SharedString>> drive_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();
-    std::shared_ptr<ProcessHandle> drive_handle_;
 
     std::shared_ptr<slint::VectorModel<JobRow>> job_rows_ = std::make_shared<slint::VectorModel<JobRow>>();
     std::string editing_job_id_;
@@ -483,7 +477,6 @@ void Controller::apply_remotes(std::vector<RemoteInfo> list)
     remote_names_model_->set_vector(names);
 
     refresh_remote_rows();
-    refresh_drive_ui();
 
     for (int side = 0; side < 2; ++side) {
         auto &p = pane_[side];
@@ -1158,11 +1151,11 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                     refresh_active();
                 });
             };
-            auto on_log = [&, src = s.src, dst = s.dst](const std::string &level, const std::string &msg) {
+            auto on_log = [&](const std::string &level, const std::string &msg) {
                 if (level == "error" || level == "warning" || level == "notice" || level == "info")
                     post([this, level, msg] { add_log(level, msg); });
                 if (is_throttle_message(msg))
-                    post([this, t, src, dst] { note_throttle(t, src, dst); });
+                    post([this, t] { note_throttle(t); });
             };
             OpResult r = s.file ? rc_.transfer_file(s.src, s.dst, s.mode == "move", s.opt, on_stats, on_log, &t->handle)
                                 : rc_.transfer(s.src, s.dst, s.opt, on_stats, on_log, &t->handle);
@@ -1783,109 +1776,13 @@ void Controller::reconnect_remote()
     });
 }
 
-void Controller::note_throttle(const std::shared_ptr<Task> &t, const std::string &src, const std::string &dst)
+void Controller::note_throttle(const std::shared_ptr<Task> &t)
 {
     if (t->throttled)
         return;
     t->throttled = true;
-    bool shared_key = false;
-    for (auto &r : remotes_) {
-        if (r.type != "drive" || r.own_client)
-            continue;
-        std::string pre = r.name + ":";
-        if (src.rfind(pre, 0) == 0 || dst.rfind(pre, 0) == 0)
-            shared_key = true;
-    }
-    std::string msg = "Google está limitando las peticiones (cuota agotada) y la transferencia irá muy lenta.";
-    if (shared_key)
-        msg += " Usas la clave compartida de rclone: crea tu propio client ID en Ajustes > Google Drive.";
-    add_log("warning", msg);
-    toast(shared_key ? "Google limita las peticiones. Crea tu propio client ID en Ajustes." : "Google limita las peticiones (cuota agotada).", true);
-}
-void Controller::refresh_drive_ui()
-{
-    std::string keep;
-    int cur = B().get_drive_remote_index();
-    if (cur >= 0 && cur < static_cast<int>(drive_names_.size()))
-        keep = drive_names_[cur];
-    drive_names_.clear();
-    std::vector<slint::SharedString> labels;
-    for (auto &r : remotes_)
-        if (r.type == "drive") {
-            drive_names_.push_back(r.name);
-            labels.push_back(S(r.name + ":"));
-        }
-    drive_model_->set_vector(labels);
-    int idx = drive_names_.empty() ? -1 : 0;
-    for (size_t i = 0; i < drive_names_.size(); ++i)
-        if (drive_names_[i] == keep)
-            idx = static_cast<int>(i);
-    select_drive_remote(idx);
-}
-
-void Controller::select_drive_remote(int i)
-{
-    B().set_drive_remote_index(i);
-    B().set_drive_client_id(S(""));
-    B().set_drive_client_secret(S(""));
-    if (i < 0 || i >= static_cast<int>(drive_names_.size())) {
-        B().set_drive_status(S(""));
-        B().set_drive_shared(false);
-        return;
-    }
-    bool own = false;
-    for (auto &r : remotes_)
-        if (r.name == drive_names_[i])
-            own = r.own_client;
-    B().set_drive_shared(!own);
-    B().set_drive_status(S(own ? "Usa credenciales propias." : "Usa la clave compartida de rclone: la cuota común se agota y hace Drive muy lento."));
-}
-
-void Controller::save_drive_creds()
-{
-    if (B().get_drive_busy()) {
-        if (drive_handle_)
-            drive_handle_->kill();
-        return;
-    }
-    int i = B().get_drive_remote_index();
-    if (i < 0 || i >= static_cast<int>(drive_names_.size()))
-        return;
-    std::string id = trim(T(B().get_drive_client_id()));
-    std::string secret = trim(T(B().get_drive_client_secret()));
-    if (id.empty() || secret.empty()) {
-        toast("Indica el client ID y el client secret.", true);
-        return;
-    }
-    if (id.find_first_of(" \t\r\n") != std::string::npos || secret.find_first_of(" \t\r\n") != std::string::npos) {
-        toast("El client ID y el secret no pueden contener espacios.", true);
-        return;
-    }
-    if (!tasks_.empty()) {
-        toast("Hay transferencias en curso. Espera a que terminen para cambiar las credenciales.", true);
-        return;
-    }
-    std::string name = drive_names_[i];
-    B().set_drive_busy(true);
-    drive_handle_ = std::make_shared<ProcessHandle>();
-    auto handle = drive_handle_;
-    spawn([this, name, id, secret, handle] {
-        OpResult r = rc_.update_remote(name, { { "client_id", id }, { "client_secret", secret } });
-        if (r.ok)
-            r = rc_.reconnect_remote(name, handle.get());
-        post([this, name, r, handle] {
-            if (handle != drive_handle_)
-                return;
-            B().set_drive_busy(false);
-            if (!r.ok) {
-                toast(handle->killed() ? "Cancelado. Las credenciales se guardaron, pero hay que reconectar «" + name + "»." : r.message, true);
-            } else {
-                toast("«" + name + "» ahora usa tus credenciales.");
-                add_log("info", "Credenciales propias configuradas en " + name);
-            }
-            load_remotes_async();
-        });
-    });
+    add_log("warning", "Google está limitando las peticiones (cuota agotada) y la transferencia irá más lenta. Prueba con menos transferencias o espera unos minutos.");
+    toast("Google limita las peticiones (cuota agotada).", true);
 }
 // ------------------------------------------------------------------ jobs
 
@@ -2523,9 +2420,6 @@ void Controller::bind_callbacks()
     b.on_remote_create([this] { create_remote(); });
     b.on_remote_edit([this] { remote_edit(); });
     b.on_remote_cancel_create([this] { cancel_create_remote(); });
-    b.on_drive_remote_changed([this](int i) { select_drive_remote(i); });
-    b.on_drive_creds_save([this] { save_drive_creds(); });
-    b.on_drive_guide([] { plat::open_url("https://rclone.org/drive/#making-your-own-client-id"); });
 
     // jobs
     b.on_job_select([this](int i) { B().set_job_selected(i); });
@@ -2716,7 +2610,6 @@ void Controller::start()
     b.set_right_files(pane_[1].model);
     b.set_remotes(remote_rows_);
     b.set_remote_types(provider_labels_);
-    b.set_drive_remotes(drive_model_);
     b.set_remote_fields(field_rows_);
     b.set_jobs(job_rows_);
     b.set_mounts(mount_rows_);

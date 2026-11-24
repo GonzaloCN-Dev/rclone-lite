@@ -44,13 +44,13 @@ Rclone Lite es una interfaz gráfica en español para [rclone](https://rclone.or
 
 ## Instalación
 
-1. Descarga **`RcloneLite-Setup-1.1.3.exe`** desde [la última versión](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest).
+1. Descarga **`RcloneLite-Setup-1.1.4.exe`** desde [la última versión](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest).
 2. Ejecuta el instalador. No requiere permisos de administrador para instalarse en tu usuario.
 3. Inicia Rclone Lite desde el menú Inicio.
 
 El instalador incluye el runtime de Visual C++ y comprueba si **rclone** y **WinFsp** están en el equipo: si faltan, te ofrece descargarlos e instalarlos (con verificación SHA-256). **WinFsp solo es necesario para montar unidades.** El instalador es x64 para Windows 10/11. No está firmado, por lo que Windows SmartScreen puede mostrar un aviso de editor desconocido.
 
-También puedes descargar el instalador directamente: **[RcloneLite-Setup-1.1.3.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/download/v1.1.3/RcloneLite-Setup-1.1.3.exe)**.
+También puedes descargar el instalador directamente: **[RcloneLite-Setup-1.1.4.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/download/v1.1.4/RcloneLite-Setup-1.1.4.exe)**.
 
 ## Requisitos
 
@@ -74,7 +74,7 @@ El ejecutable queda en `build\RcloneLite.exe`, junto a `slint_cpp.dll`. Para gen
 powershell -ExecutionPolicy Bypass -File .\installer\build-installer.ps1
 ```
 
-El instalador queda en `dist\RcloneLite-Setup-1.1.3.exe`.
+El instalador queda en `dist\RcloneLite-Setup-1.1.4.exe`.
 
 ## Datos y privacidad
 
@@ -115,7 +115,7 @@ Hecho con cuidado para que gestionar tus archivos en la nube sea más sencillo.
 
 ### Download
 
-Download **[RcloneLite-Setup-1.1.3.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest)** for 64-bit Windows 10/11. The installer includes the Visual C++ runtime and offers to download rclone and WinFsp (SHA-256 verified) when they are missing. WinFsp is only needed for drive mounts. The installer is unsigned, so SmartScreen may warn about an unknown publisher.
+Download **[RcloneLite-Setup-1.1.4.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest)** for 64-bit Windows 10/11. The installer includes the Visual C++ runtime and offers to download rclone and WinFsp (SHA-256 verified) when they are missing. WinFsp is only needed for drive mounts. The installer is unsigned, so SmartScreen may warn about an unknown publisher.
 
 ### Build
 
