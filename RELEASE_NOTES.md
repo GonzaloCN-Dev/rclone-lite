@@ -1,27 +1,25 @@
-# Rclone Lite 1.1.6
+# Rclone Lite 1.2.0
 
-Your own Google credentials again, because rclone's shared key no longer signs in.
+Una actualización centrada en proteger tus datos y hacer más cómodas las transferencias.
 
-## What's changed
+## Novedades
 
-- **Google now blocks rclone's shared client ID.** Signing in with it fails with "Access blocked: Rclone no ha completado el proceso de verificacion de Google ... Error 403: access_denied". It is rclone's key, not your account, and rclone has announced it is being retired during 2026.
-- **Your own Client ID and Client secret are back.** Settings has the "Google Drive: credenciales propias" section again, and the Google Drive wizard asks for them. Editing a Drive remote also keeps the optional fields and the "Reautenticar en el navegador" button.
-- **Clearer text.** The Drive wizard and the editor now say that the shared key can fail, instead of suggesting to keep using it.
-- Kept from 1.1.5: "Reautenticar en el navegador" for Drive, OneDrive, Dropbox, Box and pCloud. Kept from 1.1.3: the editor and the throttling warning.
+- **Importación segura de trabajos:** revisa un resumen antes de importar; las programaciones quedan desactivadas y se eliminan flags peligrosas. Se avisa de las sincronizaciones que pueden borrar archivos.
+- **Almacenamiento más resistente:** copias de seguridad de los datos, recuperación desde `.bak` ante JSON dañado y avisos cuando no se pueden leer o guardar archivos.
+- **Transferencias más fiables:** los trabajos 1:N continúan con otros destinos si uno falla; varios archivos sueltos se copian o mueven en lote.
+- **Control de sobrescritura:** opción para no reemplazar archivos más nuevos del destino, en los ajustes generales y en cada trabajo.
+- **Reautenticación OAuth:** Rclone Lite detecta errores habituales de token caducado y ofrece iniciar sesión de nuevo.
+- **Borrados más claros:** se acumulan los errores de cada elemento y las operaciones se añaden al historial.
+- **Atajos en el explorador:** F2 renombrar, F5 copiar, F6 mover, F7 crear carpeta y F8 eliminar. No se activan mientras se escribe en la ruta.
 
-## How to create your credentials
+## Actualización
 
-1. In the Google Cloud console, enable the Google Drive API.
-2. Create an OAuth client of type "Desktop app" and set the consent screen to "In production" (in "Testing" the access expires after 7 days).
-3. Paste the Client ID and Client secret in Rclone Lite and sign in in the browser. The guide button in Settings opens the rclone instructions.
+Descarga `RcloneLite-Setup-1.2.0.exe` en los archivos adjuntos de esta release e instálalo sobre la versión anterior. Tus trabajos, remotos e historial permanecen en `%APPDATA%\RcloneLite`.
 
-## Install
+El instalador es x64 para Windows 10/11 y no está firmado, por lo que Windows SmartScreen podría mostrar un aviso de editor desconocido.
 
-Download `RcloneLite-Setup-1.1.6.exe` below and run it. Version 1.1.5 offers the update on its own. The installer is unsigned, so Windows SmartScreen may show an unknown-publisher warning.
+## Notas
 
-## Notes
-
-- 64-bit Windows 10/11.
-- Spanish user interface.
-- MIT license for original Rclone Lite code; see `installer/LICENSES.txt` for third-party components.
-- Created by Gonzalo Cruz Núñez.
+- Interfaz en español.
+- Código original bajo licencia MIT; consulta `installer/LICENSES.txt` para las licencias de terceros.
+- Creado por Gonzalo Cruz Núñez.
