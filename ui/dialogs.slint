@@ -193,7 +193,19 @@ export component JobDialog inherits Modal {
                 }
                 VerticalLayout {
                     spacing: 5px;
-                    FieldLabel { text: "Filtros (uno por línea)  —  - *.tmp   ·   - node_modules/**   ·   + *.jpg"; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        FieldLabel { text: "Filtros (uno por línea)  —  - *.tmp   ·   + *.jpg"; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Btn {
+                            compact: true;
+                            kind: "ghost";
+                            text: "Excluir node_modules, vendor y .git";
+                            clicked => {
+                                Backend.job-form.filters = Backend.job-form.filters + (Backend.job-form.filters == "" ? "" : "\n") + "- node_modules/**\n- vendor/**\n- .git/**";
+                            }
+                        }
+                    }
                     TextField {
                         value: Backend.job-form.filters;
                         mono: true;

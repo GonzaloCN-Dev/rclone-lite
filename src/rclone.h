@@ -1,8 +1,10 @@
-﻿#pragma once
+#pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -81,6 +83,11 @@ public:
     static std::string auto_detect();
 
     bool available() const { return !exe_.empty(); }
+
+    // Adds provider-specific speed flags (e.g. Google Drive pacing) to transfers.
+    void set_auto_tune(bool on) { auto_tune_ = on; }
+    bool auto_tune() const { return auto_tune_; }
+    void set_remote_types(const std::vector<RemoteInfo> &list);
     std::string version() const;
 
     std::vector<RemoteInfo> list_remotes() const;
@@ -126,8 +133,13 @@ public:
 
     std::vector<std::string> common_flags(const TransferOptions &opt, std::string *filter_file) const;
 
+    bool is_drive_spec(const std::string &spec) const;
+
 private:
     std::string exe_;
+    std::atomic<bool> auto_tune_ { true };
+    mutable std::mutex types_mu_;
+    std::map<std::string, std::string> remote_types_;
 };
 
 // Writes lines to a temp file and returns its path ("" on failure). Caller removes it.

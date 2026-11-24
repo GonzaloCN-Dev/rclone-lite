@@ -448,6 +448,7 @@ void Controller::apply_remotes(std::vector<RemoteInfo> list)
     std::sort(list.begin(), list.end(), [](const RemoteInfo &a, const RemoteInfo &b) {
         return lower(a.name) < lower(b.name);
     });
+    rc_.set_remote_types(list);
     remotes_ = std::move(list);
     remote_names_.clear();
     remote_names_.push_back("Disco local");
@@ -2071,6 +2072,8 @@ void Controller::load_settings_into_ui()
     B().set_set_notify_done(s.notify_done);
     B().set_set_minimize_tray(s.minimize_to_tray);
     B().set_set_auto_update(s.auto_update);
+    B().set_set_auto_tune(s.auto_tune);
+    rc_.set_auto_tune(s.auto_tune);
     ui_->global<Theme>().set_dark(s.dark_theme);
 }
 
@@ -2086,6 +2089,8 @@ void Controller::apply_settings()
     s.notify_done = B().get_set_notify_done();
     s.minimize_to_tray = B().get_set_minimize_tray();
     s.auto_update = B().get_set_auto_update();
+    s.auto_tune = B().get_set_auto_tune();
+    rc_.set_auto_tune(s.auto_tune);
     store_.save();
     load_settings_into_ui();
     bool had = rc_.available();

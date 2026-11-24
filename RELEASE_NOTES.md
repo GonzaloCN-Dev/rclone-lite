@@ -1,17 +1,19 @@
-# Rclone Lite 1.1.0
+# Rclone Lite 1.1.1
 
-Live transfer speed, a fix for unexpected crashes, automatic updates and a smarter installer.
+Much faster uploads of many small files to Google Drive.
 
 ## What's new
 
-- **Live speed chart.** The transfers panel shows the current speed in KB/s or MB/s with a real-time chart of the last minute, for copy, move and sync.
-- **Crash fix.** The app could close without warning during a transfer when rclone reported a `null` value in its JSON log. All external JSON is now read defensively, worker threads can no longer take the process down, and any fatal error is written to `%APPDATA%\RcloneLite\errors.log`.
-- **Automatic updates.** Rclone Lite checks GitHub for new releases at startup (it can be turned off in Settings), asks before updating, verifies the SHA-256 of the download and runs the installer. The app closes itself during the update and reopens when it finishes. A **Check for updates** button is available in Settings.
-- **Smarter installer.** It detects rclone and WinFsp and, if either is missing, offers to download and install the latest version (checksum verified). The installer is now 9.6 MB instead of 28.6 MB because rclone is no longer bundled.
+- **Automatic speed tuning for Google Drive.** Transfers to or from a Drive remote now run with 16 parallel transfers/checks and a faster request pacer (`--drive-pacer-min-sleep=2ms --drive-pacer-burst=500`). In tests with small files (project folders, `htdocs`) throughput was about 3.5x higher (average 0.7 -> 2.4 files per second over two interleaved runs; the absolute rate varies with Drive load). Large files are not affected. It can be turned off in Settings, and your own `--drive-pacer-*` flags always win.
+- **Quick filter.** The job dialog has a button that excludes `node_modules`, `vendor` and `.git` with one click.
+
+## Tips for huge folders
+
+Drive limits file creation rate, so the number of files matters more than their size. Exclude regenerable folders, zip what you want to keep, and use your own Google client ID for a private quota.
 
 ## Install
 
-Download `RcloneLite-Setup-1.1.0.exe` below and run it. If you already have 1.0.0 installed, it updates in place. The installer is unsigned, so Windows SmartScreen may show an unknown-publisher warning.
+Download `RcloneLite-Setup-1.1.1.exe` below and run it. Version 1.1.0 offers the update on its own. The installer is unsigned, so Windows SmartScreen may show an unknown-publisher warning.
 
 ## Notes
 

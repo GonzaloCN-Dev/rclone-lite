@@ -199,6 +199,7 @@ void Store::load()
             settings.notify_done = jv(j, "notify_done", true);
             settings.minimize_to_tray = jv(j, "minimize_to_tray", false);
             settings.auto_update = jv(j, "auto_update", true);
+            settings.auto_tune = jv(j, "auto_tune", true);
             settings.bwlimit = jv(j, "bwlimit", "");
             settings.extra_flags = jv(j, "extra_flags", "");
         }
@@ -266,6 +267,7 @@ void Store::save() const
                { "notify_done", settings.notify_done },
                { "minimize_to_tray", settings.minimize_to_tray },
                { "auto_update", settings.auto_update },
+               { "auto_tune", settings.auto_tune },
                { "bwlimit", settings.bwlimit },
                { "extra_flags", settings.extra_flags } };
     write_file_atomic(dir / L"settings.json", s.dump(2, ' ', false, json::error_handler_t::replace));

@@ -657,6 +657,11 @@ export component SettingsPage inherits Rectangle {
                             placeholder: "Ej. --drive-chunk-size 64M";
                             edited(t) => { Backend.set-extra = t; }
                         }
+                        Check {
+                            text: "Optimizar la velocidad automáticamente (ajusta Google Drive para muchos archivos pequeños)";
+                            checked: Backend.set-auto-tune;
+                            toggled(v) => { Backend.set-auto-tune = v; }
+                        }
                     }
                 }
 

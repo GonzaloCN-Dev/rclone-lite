@@ -216,6 +216,24 @@ std::string Rclone::version() const
     return trim(line);
 }
 
+void Rclone::set_remote_types(const std::vector<RemoteInfo> &list)
+{
+    std::lock_guard<std::mutex> lock(types_mu_);
+    remote_types_.clear();
+    for (auto &r : list)
+        remote_types_[r.name] = r.type;
+}
+
+bool Rclone::is_drive_spec(const std::string &spec) const
+{
+    size_t colon = spec.find(':');
+    if (colon == std::string::npos || colon < 2)
+        return false;
+    std::lock_guard<std::mutex> lock(types_mu_);
+    auto it = remote_types_.find(spec.substr(0, colon));
+    return it != remote_types_.end() && it->second == "drive";
+}
+
 std::vector<RemoteInfo> Rclone::list_remotes() const
 {
     std::vector<RemoteInfo> out;
@@ -385,6 +403,22 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
     std::string filter_file;
     for (auto &f : rc.common_flags(opt, &filter_file))
         args.push_back(std::move(f));
+    if (rc.auto_tune() && args.size() >= 3 && (rc.is_drive_spec(args[1]) || rc.is_drive_spec(args[2]))
+        && opt.extra_flags.find("--drive-pacer") == std::string::npos) {
+        // Drive's default pacer (100ms) caps small-file uploads at well under 1 file/s, and
+        // 4 transfers can't hide the per-file latency. Measured: ~0.6 -> ~3 files/s.
+        args.push_back("--drive-pacer-min-sleep=2ms");
+        args.push_back("--drive-pacer-burst=500");
+        auto raise = [&args](const std::string &flag, int have) {
+            if (have >= 16)
+                return;
+            auto it = std::find(args.begin() + 3, args.end(), flag + "=" + std::to_string(std::max(1, have)));
+            if (it != args.end())
+                *it = flag + "=16";
+        };
+        raise("--transfers", opt.transfers);
+        raise("--checkers", opt.checkers);
+    }
     args.insert(args.end(), { "--use-json-log", "-v", "--stats=500ms", "--stats-log-level=NOTICE" });
 
     std::string last_error;
