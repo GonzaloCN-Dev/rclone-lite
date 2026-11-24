@@ -58,3 +58,21 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:RcloneLite> $<TARGET_FILE_DIR:RcloneLite>
         COMMAND_EXPAND_LISTS)
 endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(RcloneLiteLogicTests
+        tests/logic_tests.cpp
+        src/store.cpp
+        src/rclone.cpp
+        src/proc.cpp
+    )
+    set_target_properties(RcloneLiteLogicTests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_include_directories(RcloneLiteLogicTests PRIVATE src)
+    target_compile_definitions(RcloneLiteLogicTests PRIVATE _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(RcloneLiteLogicTests PRIVATE nlohmann_json::nlohmann_json)
+    if(MSVC)
+        target_compile_options(RcloneLiteLogicTests PRIVATE /utf-8 /W3 /permissive- /EHsc)
+    endif()
+    add_test(NAME RcloneLiteLogicTests COMMAND RcloneLiteLogicTests)
+endif()

@@ -135,6 +135,7 @@ struct Task {
     std::string detail = "Iniciando…";
     double speed_val = 0;
     bool throttled = false;
+    bool auth_noted = false;
     int64_t bytes = 0, total = 0, files = 0;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 };
@@ -235,6 +236,10 @@ private:
              const std::string &initial, const std::string &ok,
              std::function<void(const std::string &)> action);
     void add_log(const std::string &level, const std::string &msg);
+    // Saves the store and tells the user (once) when the disk write fails.
+    bool persist();
+    void record_op(const std::string &mode, const std::string &title, const std::string &src, const std::string &dst,
+                   bool ok, const std::string &err, int64_t files, int64_t bytes);
     void bind_callbacks();
     void load_remotes_async();
     void apply_remotes(std::vector<RemoteInfo> list);
@@ -292,6 +297,9 @@ private:
     void remote_reauth();
     void refresh_drive_ui();
     void note_throttle(const std::shared_ptr<Task> &t, const std::string &src, const std::string &dst);
+    void note_auth_error(const std::shared_ptr<Task> &t, const std::string &src, const std::string &dst);
+    void offer_reauth(const std::string &remote);
+    void reauth_remote_named(const std::string &name);
     void select_drive_remote(int i);
     void save_drive_creds();
 
@@ -332,6 +340,8 @@ private:
     std::shared_ptr<slint::VectorModel<TransferRow>> done_model_ = std::make_shared<slint::VectorModel<TransferRow>>();
     std::shared_ptr<slint::VectorModel<LogRow>> log_model_ = std::make_shared<slint::VectorModel<LogRow>>();
     std::set<std::string> running_jobs_;
+    std::set<std::string> reauth_busy_;
+    bool save_warned_ = false;
 
     std::shared_ptr<slint::VectorModel<slint::SharedString>> remote_names_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();
     std::shared_ptr<slint::VectorModel<RemoteRow>> remote_rows_ = std::make_shared<slint::VectorModel<RemoteRow>>();
@@ -432,6 +442,86 @@ void Controller::add_log(const std::string &level, const std::string &msg)
     log_model_->insert(0, r);
     while (log_model_->row_count() > 600)
         log_model_->erase(log_model_->row_count() - 1);
+}
+
+bool Controller::persist()
+{
+    if (store_.save()) {
+        save_warned_ = false;
+        return true;
+    }
+    plat::log_error("No se pudo guardar: " + store_.save_error);
+    if (!save_warned_) {
+        save_warned_ = true;
+        toast("No se pudieron guardar los datos (" + store_.save_error + "). Comprueba el espacio en disco y los permisos de %APPDATA%\\RcloneLite.", true);
+    }
+    return false;
+}
+
+void Controller::record_op(const std::string &mode, const std::string &title, const std::string &src,
+                           const std::string &dst, bool ok, const std::string &err, int64_t files, int64_t bytes)
+{
+    HistoryEntry h;
+    h.time = now_unix();
+    h.job = title;
+    h.mode = mode;
+    h.source = src;
+    h.destination = dst;
+    h.status = ok ? "ok" : "error";
+    h.trigger = "manual";
+    h.bytes = bytes;
+    h.files = files;
+    h.error = err.size() > 400 ? err.substr(0, 400) : err;
+    store_.add_history(std::move(h));
+    persist();
+    refresh_history();
+}
+
+void Controller::note_auth_error(const std::shared_ptr<Task> &t, const std::string &src, const std::string &dst)
+{
+    if (t->auth_noted)
+        return;
+    t->auth_noted = true;
+    for (const auto &spec : { src, dst }) {
+        size_t colon = spec.find(':');
+        if (colon == std::string::npos)
+            continue;
+        std::string name = spec.substr(0, colon);
+        auto it = std::find_if(remotes_.begin(), remotes_.end(),
+                               [&](const RemoteInfo &r) { return r.name == name && is_oauth_type(r.type); });
+        if (it != remotes_.end()) {
+            add_log("warning", "El acceso de «" + name + "» puede haber caducado. Vuelve a autenticarlo.");
+            offer_reauth(name);
+            return;
+        }
+    }
+}
+
+void Controller::offer_reauth(const std::string &remote)
+{
+    if (!T(B().get_dialog()).empty() || reauth_busy_.count(remote))
+        return;
+    confirm("Acceso caducado", "La sesión de «" + remote + "» parece haber caducado. ¿Quieres volver a iniciar sesión en el navegador?",
+            "Reautenticar", false, [this, remote] { reauth_remote_named(remote); });
+}
+
+void Controller::reauth_remote_named(const std::string &name)
+{
+    if (!reauth_busy_.insert(name).second)
+        return;
+    toast("Se abrirá el navegador para renovar el acceso a «" + name + "»…");
+    spawn([this, name] {
+        OpResult r = rc_.reconnect_remote(name);
+        post([this, name, r] {
+            reauth_busy_.erase(name);
+            if (r.ok) {
+                toast("«" + name + "» reconectado.");
+                add_log("info", "Remoto reautenticado: " + name);
+            } else {
+                toast(r.message, true);
+            }
+        });
+    });
 }
 
 std::string Controller::effective_exe_path() const
@@ -805,16 +895,45 @@ void Controller::transfer_selected(bool to_right, bool move)
     }
 
     std::vector<Step> steps;
+    std::vector<std::string> file_names;
     for (auto &e : sel) {
+        if (!e.is_dir) {
+            file_names.push_back(e.name);
+            continue;
+        }
         Step s;
         s.src = entry_join(P, e.name);
         s.dst = entry_join(D, e.name);
-        s.file = !e.is_dir;
         s.mode = move ? "move" : "copy";
         s.opt = base_options();
-        if (move && e.is_dir)
+        s.opt.mode = s.mode; // rclone::transfer() reads the mode from the options
+        if (move)
             s.opt.extra_flags += " --delete-empty-src-dirs";
         steps.push_back(std::move(s));
+    }
+    // Several loose files go in a single rclone run instead of one process per file.
+    if (file_names.size() == 1) {
+        Step s;
+        s.src = entry_join(P, file_names[0]);
+        s.dst = entry_join(D, file_names[0]);
+        s.file = true;
+        s.mode = move ? "move" : "copy";
+        s.opt = base_options();
+        steps.insert(steps.begin(), std::move(s));
+    } else if (file_names.size() > 1) {
+        Step s;
+        s.src = P.spec();
+        s.dst = D.spec();
+        s.mode = move ? "move" : "copy";
+        s.opt = base_options();
+        s.opt.mode = s.mode;
+        s.temp_file = write_temp_lines(file_names);
+        if (s.temp_file.empty()) {
+            toast("No se pudo crear la lista temporal de archivos.", true);
+            return;
+        }
+        s.opt.files_from = s.temp_file;
+        steps.insert(steps.begin(), std::move(s));
     }
     auto t = std::make_shared<Task>();
     t->id = new_id();
@@ -850,21 +969,31 @@ void Controller::delete_selected()
         spawn([this, side, sel, base] {
             std::string errors;
             int ok = 0;
+            int64_t files = 0, bytes = 0;
             for (auto &e : sel) {
                 std::string spec = join_path(base, e.name);
                 OpResult r = e.is_dir ? rc_.purge(spec) : rc_.delete_file(spec);
-                if (r.ok)
+                if (r.ok) {
                     ++ok;
-                else
-                    errors = e.name + ": " + r.message;
+                    if (!e.is_dir) {
+                        ++files;
+                        bytes += e.size;
+                    }
+                } else {
+                    if (!errors.empty())
+                        errors += "\n";
+                    errors += e.name + ": " + r.message;
+                }
             }
-            post([this, side, ok, errors] {
+            post([this, side, ok, errors, base, files, bytes] {
+                record_op("delete", "Eliminar " + std::to_string(ok) + " elementos", base, "", errors.empty(),
+                          errors, files, bytes);
                 add_log(errors.empty() ? "info" : "error",
                         errors.empty() ? "Eliminados " + std::to_string(ok) + " elementos" : errors);
                 if (errors.empty())
                     toast("Se eliminaron " + std::to_string(ok) + " elementos.");
                 else
-                    toast(errors, true);
+                    toast(errors.substr(0, 700), true);
                 refresh_pane(side);
             });
         });
@@ -1132,6 +1261,8 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
         int64_t base_bytes = 0, base_total = 0, base_files = 0;
         bool ok = true;
         std::string err;
+        // One failing step (e.g. one unreachable destination) must not stop the other ones.
+        std::vector<std::string> failures;
         for (auto &s : steps) {
             if (t->handle.killed()) {
                 ok = false;
@@ -1164,6 +1295,8 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                     post([this, level, msg] { add_log(level, msg); });
                 if (is_throttle_message(msg))
                     post([this, t, src, dst] { note_throttle(t, src, dst); });
+                if (is_auth_error(msg))
+                    post([this, t, src, dst] { note_auth_error(t, src, dst); });
             };
             OpResult r = s.file ? rc_.transfer_file(s.src, s.dst, s.mode == "move", s.opt, on_stats, on_log, &t->handle)
                                 : rc_.transfer(s.src, s.dst, s.opt, on_stats, on_log, &t->handle);
@@ -1172,10 +1305,24 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
             base_total += last.total_bytes;
             base_files += last.transfers;
             if (!r.ok) {
-                ok = false;
-                err = r.message;
-                break;
+                if (t->handle.killed()) {
+                    ok = false;
+                    err = "Cancelado por el usuario.";
+                    break;
+                }
+                failures.push_back(steps.size() > 1 ? s.dst + ": " + r.message : r.message);
             }
+        }
+        if (!failures.empty()) {
+            ok = false;
+            err = failures.front();
+            if (failures.size() > 1) {
+                err = std::to_string(failures.size()) + " de " + std::to_string(steps.size()) + " pasos fallaron. ";
+                for (size_t i = 0; i < failures.size() && i < 3; ++i)
+                    err += (i ? " | " : "") + failures[i];
+            }
+            if (err.size() > 600)
+                err.resize(600);
         }
         for (auto &s : steps)
             remove_temp_file(s.temp_file);
@@ -1230,7 +1377,7 @@ void Controller::finish_task(const std::shared_ptr<Task> &t, bool ok, bool cance
         h.seconds = secs;
         h.error = ok ? "" : err;
         store_.add_history(std::move(h));
-        store_.save();
+        persist();
         refresh_history();
     }
 
@@ -1394,7 +1541,9 @@ void Controller::compare_delete(bool left)
                 B().set_compare_busy(true);
                 spawn([this, list, root] {
                     OpResult r = rc_.delete_listed(root, list);
-                    post([this, r] {
+                    post([this, r, root, count = list.size()] {
+                        record_op("delete", "Eliminar archivos (comparación)", root, "", r.ok,
+                                  r.ok ? "" : r.message, r.ok ? static_cast<int64_t>(count) : 0, 0);
                         if (!r.ok)
                             toast(r.message, true);
                         else
@@ -2078,7 +2227,7 @@ bool Controller::save_job_from_form(std::string &id_out)
         *old = j;
         id_out = j.id;
     }
-    store_.save();
+    persist();
     refresh_jobs();
     B().set_job_editing(false);
     return true;
@@ -2121,13 +2270,13 @@ void Controller::run_job(const std::string &id, bool dry, const std::string &tri
         running_jobs_.erase(id);
         if (Job *j = store_.find_job(id)) {
             j->last_status = ok ? "ok" : cancelled ? "" : "error";
-            store_.save();
+            persist();
         }
         refresh_jobs();
         refresh_pane(0);
         refresh_pane(1);
     });
-    if (!tasks_.empty() && tasks_.back() != t) {
+    if (std::find(tasks_.begin(), tasks_.end(), t) == tasks_.end()) {
         running_jobs_.erase(id);
         refresh_jobs();
     }
@@ -2189,14 +2338,51 @@ void Controller::import_jobs()
         toast("No se pudo leer el archivo.", true);
         return;
     }
-    int n = store_.import_jobs_json(text);
-    if (n < 0) {
+    std::vector<Job> imported;
+    ImportReport report;
+    if (!store_.parse_jobs_import(text, imported, report)) {
         toast("El archivo no tiene un formato de trabajos válido.", true);
         return;
     }
-    store_.save();
-    refresh_jobs();
-    toast("Se importaron " + std::to_string(n) + " trabajos.");
+    if (imported.empty()) {
+        toast("No hay trabajos válidos que importar. Revisa las rutas de origen y destino.", true);
+        return;
+    }
+
+    std::string text_summary = "Se importarán " + std::to_string(imported.size()) + " trabajos.";
+    if (report.schedules_disabled)
+        text_summary += "\n" + std::to_string(report.schedules_disabled) +
+                        " programaciones quedarán desactivadas; podrás activarlas después de revisarlas.";
+    if (report.sync_jobs)
+        text_summary += "\n" + std::to_string(report.sync_jobs) +
+                        " trabajos de sincronización pueden eliminar archivos del destino.";
+    if (!report.removed_flags.empty()) {
+        std::sort(report.removed_flags.begin(), report.removed_flags.end());
+        report.removed_flags.erase(std::unique(report.removed_flags.begin(), report.removed_flags.end()),
+                                   report.removed_flags.end());
+        text_summary += "\nSe bloquearán flags potencialmente peligrosos: ";
+        for (size_t i = 0; i < report.removed_flags.size() && i < 5; ++i)
+            text_summary += (i ? ", " : "") + report.removed_flags[i];
+        if (report.removed_flags.size() > 5)
+            text_summary += " y otros";
+        text_summary += ".";
+    }
+    if (report.skipped)
+        text_summary += "\nSe omitirán " + std::to_string(report.skipped) + " elementos incompletos o inválidos.";
+
+    confirm("Revisar importación", text_summary + "\n\n¿Quieres importar estos trabajos?", "Importar", true,
+            [this, imported = std::move(imported)]() mutable {
+                const size_t old_size = store_.jobs.size();
+                store_.jobs.insert(store_.jobs.end(),
+                                   std::make_move_iterator(imported.begin()),
+                                   std::make_move_iterator(imported.end()));
+                if (!persist()) {
+                    store_.jobs.resize(old_size);
+                    return;
+                }
+                refresh_jobs();
+                toast("Se importaron " + std::to_string(imported.size()) + " trabajos.");
+            });
 }
 
 // ------------------------------------------------------------------ mounts
@@ -2259,7 +2445,7 @@ void Controller::save_mount()
         return;
     }
     store_.mounts.push_back(m);
-    store_.save();
+    persist();
     refresh_mounts();
     B().set_dialog(S(""));
     B().set_mount_selected(static_cast<int>(store_.mounts.size()) - 1);
@@ -2411,7 +2597,7 @@ void Controller::apply_settings()
     s.auto_update = B().get_set_auto_update();
     s.auto_tune = B().get_set_auto_tune();
     rc_.set_auto_tune(s.auto_tune);
-    store_.save();
+    persist();
     load_settings_into_ui();
     bool had = rc_.available();
     refresh_rclone_state();
@@ -2434,7 +2620,7 @@ void Controller::bind_callbacks()
     b.on_theme_changed([this](bool dark) {
         ui_->global<Theme>().set_dark(dark);
         store_.settings.dark_theme = dark;
-        store_.save();
+        persist();
     });
 
     b.on_dismiss_toast([this] { B().set_toast_visible(false); });
@@ -2587,7 +2773,7 @@ void Controller::bind_callbacks()
         j.last_status.clear();
         j.schedule.last_run = now_unix();
         store_.jobs.push_back(j);
-        store_.save();
+        persist();
         refresh_jobs();
     });
     b.on_job_delete([this] {
@@ -2598,7 +2784,7 @@ void Controller::bind_callbacks()
         confirm("Eliminar trabajo", "Se eliminará el trabajo «" + store_.jobs[i].name + "».", "Eliminar", true, [this, id] {
             auto &v = store_.jobs;
             v.erase(std::remove_if(v.begin(), v.end(), [&](const Job &j) { return j.id == id; }), v.end());
-            store_.save();
+            persist();
             B().set_job_selected(-1);
             refresh_jobs();
         });
@@ -2671,7 +2857,7 @@ void Controller::bind_callbacks()
         auto &v = store_.mounts;
         v.erase(std::remove_if(v.begin(), v.end(), [&](const MountDef &m) { return m.id == id; }), v.end());
         mount_rt_.erase(id);
-        store_.save();
+        persist();
         B().set_mount_selected(-1);
         refresh_mounts();
     });
@@ -2706,7 +2892,7 @@ void Controller::bind_callbacks()
     b.on_history_clear([this] {
         confirm("Borrar historial", "Se borrará todo el historial de operaciones.", "Borrar", true, [this] {
             store_.history.clear();
-            store_.save();
+            persist();
             refresh_history();
         });
     });
@@ -2772,6 +2958,10 @@ void Controller::start()
     refresh_jobs();
     refresh_mounts();
     refresh_history();
+    for (const auto &warning : store_.warnings)
+        plat::log_error("Almacén local: " + warning);
+    if (!store_.warnings.empty())
+        toast(store_.warnings.front(), true);
     bind_callbacks();
 
     remote_names_.push_back("Disco local");
@@ -2810,7 +3000,8 @@ void Controller::shutdown()
     for (auto &[id, rt] : mount_rt_)
         if (rt.handle)
             rt.handle->kill();
-    store_.save();
+    if (!store_.save())
+        plat::log_error("No se pudieron guardar los datos al cerrar: " + store_.save_error);
 }
 
 } // namespace

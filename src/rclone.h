@@ -75,6 +75,18 @@ struct OpResult {
 std::string join_path(const std::string &base, const std::string &name);
 std::string parent_path(const std::string &path);
 
+// A source/destination that starts with '-' would be read by rclone as a flag.
+bool valid_path_spec(const std::string &spec);
+
+// Drops flags that can run programs, open servers or redirect logs (used for imported jobs).
+// Words that were removed are appended to `removed`.
+std::string sanitize_extra_flags(const std::string &flags, std::vector<std::string> *removed = nullptr);
+
+// True when rclone's message says the OAuth token expired or was revoked.
+bool is_auth_error(const std::string &text);
+// Backends that sign in through the browser (`rclone config reconnect` works for them).
+bool is_oauth_type(const std::string &type);
+
 class Rclone {
 public:
     Rclone();

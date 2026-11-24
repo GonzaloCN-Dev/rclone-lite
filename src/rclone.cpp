@@ -137,6 +137,84 @@ OpResult Rclone::delete_listed(const std::string &root,
     return { r.exit_code == 0, r.exit_code == 0 ? "" : error_text(r) };
 }
 
+bool valid_path_spec(const std::string &spec)
+{
+    if (spec.empty() || spec[0] == '-' || spec[0] == ':')
+        return false;
+    // "remote,option=value:path" lets a path carry backend options (sftp's `ssh=<program>` runs a
+    // command); a normal "remote:path" or "C:/path" never has a comma before its first colon.
+    size_t colon = spec.find(':');
+    if (colon != std::string::npos && spec.find(',') < colon)
+        return false;
+    return true;
+}
+
+namespace {
+
+std::string lowered(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+bool is_blocked_flag(const std::string &word)
+{
+    if (word.size() < 2 || word[0] != '-')
+        return false;
+    size_t prefix = word.size() > 1 && word[1] == '-' ? 2 : 1;
+    std::string name = word.substr(prefix);
+    size_t eq = name.find('=');
+    if (eq != std::string::npos)
+        name.resize(eq);
+    name = lowered(name);
+    static const char *exact[] = { "config", "password-command", "metadata-mapper", "sftp-ssh", "log-file",
+                                   "files-from", "files-from-raw", "files-from0", "filter-from", "exclude-from",
+                                   "include-from", "use-json-log", "stats", "stats-log-level", "stats-one-line",
+                                   "dump", "rc" };
+    for (const char *e : exact)
+        if (name == e)
+            return true;
+    auto ends = [&](const std::string &s) { return name.size() > s.size() && name.compare(name.size() - s.size(), s.size(), s) == 0; };
+    return name.rfind("rc-", 0) == 0 || ends("-command");
+}
+
+} // namespace
+
+std::string sanitize_extra_flags(const std::string &flags, std::vector<std::string> *removed)
+{
+    auto words = split_words(flags);
+    std::string out;
+    for (size_t i = 0; i < words.size(); ++i) {
+        if (is_blocked_flag(words[i])) {
+            if (removed)
+                removed->push_back(words[i]);
+            // "--flag value": the value would otherwise become a stray positional argument.
+            if (words[i].find('=') == std::string::npos && i + 1 < words.size() && words[i + 1][0] != '-')
+                ++i;
+            continue;
+        }
+        out += (out.empty() ? "" : " ") + words[i];
+    }
+    return out;
+}
+
+bool is_auth_error(const std::string &text)
+{
+    std::string l = lowered(text);
+    static const char *needles[] = { "invalid_grant", "expired or revoked", "cannot fetch token", "couldn't fetch token",
+                                     "token expired", "failed to refresh token", "refresh token has expired",
+                                     "aadsts700082", "expired_access_token" };
+    for (const char *n : needles)
+        if (l.find(n) != std::string::npos)
+            return true;
+    return false;
+}
+
+bool is_oauth_type(const std::string &type)
+{
+    return type == "drive" || type == "onedrive" || type == "dropbox" || type == "box" || type == "pcloud";
+}
+
 std::string join_path(const std::string &base, const std::string &name)
 {
     if (base.empty())
@@ -412,6 +490,8 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
                       const std::function<void(const std::string &, const std::string &)> &on_log,
                       ProcessHandle *handle)
 {
+    if (args.size() >= 3 && (!valid_path_spec(args[1]) || !valid_path_spec(args[2])))
+        return { false, "El origen o el destino no es una ruta válida." };
     std::string filter_file;
     for (auto &f : rc.common_flags(opt, &filter_file))
         args.push_back(std::move(f));
