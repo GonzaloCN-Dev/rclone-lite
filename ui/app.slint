@@ -129,7 +129,15 @@ component ExplorerPage inherits Rectangle {
                 ToolBtn { glyph: "\u{E8AC}"; text: "Renombrar"; enabled: Backend.rclone-ok; clicked => { Backend.rename-selected(); } }
                 ToolBtn { glyph: "\u{E74D}"; text: "Eliminar"; enabled: Backend.rclone-ok; clicked => { Backend.delete-selected(); } }
                 ToolBtn { glyph: "\u{E71B}"; text: "Copiar enlace"; enabled: Backend.rclone-ok; clicked => { Backend.copy-link(); } }
-                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    horizontal-stretch: 1;
+                    text: "F2 Renombrar · F5 Copiar · F6 Mover · F7 Nueva carpeta · F8 Eliminar";
+                    font-size: 10px;
+                    color: Theme.text-faint;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
             }
         }
 
@@ -194,99 +202,127 @@ export component AppWindow inherits Window {
     background: Theme.bg;
     default-font-family: "Segoe UI";
     default-font-size: 13px;
+    forward-focus: keyboard_scope;
 
-    HorizontalLayout {
-        // Sidebar
-        Rectangle {
-            width: 210px;
-            background: Theme.sidebar;
-            VerticalLayout {
-                padding: 12px;
-                spacing: 4px;
-                Rectangle {
-                    height: 62px;
-                    HorizontalLayout {
-                        padding-left: 6px;
-                        spacing: 10px;
-                        Rectangle {
-                            y: 12px;
-                            width: 36px;
-                            height: 36px;
-                            border-radius: 10px;
-                            background: Theme.accent;
-                            Icon { glyph: "\u{E753}"; color: #ffffff; font-size: 20px; }
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            Text { text: "Rclone Lite"; font-size: 15px; font-weight: 800; color: Theme.text; }
-                            Text { text: "Gestor de la nube"; font-size: 11px; color: Theme.text-faint; }
+    keyboard_scope := FocusScope {
+        init => { self.focus(); }
+        capture-key-pressed(event) => {
+            if Backend.page == 0 && Backend.dialog == "" && !Backend.job-editing && !Backend.compare-open {
+                if event.text == Key.F2 {
+                    Backend.rename-selected();
+                    EventResult.accept
+                } else if event.text == Key.F5 {
+                    Backend.copy-selected(Backend.active-side == 0);
+                    EventResult.accept
+                } else if event.text == Key.F6 {
+                    Backend.move-selected(Backend.active-side == 0);
+                    EventResult.accept
+                } else if event.text == Key.F7 {
+                    Backend.new-folder();
+                    EventResult.accept
+                } else if event.text == Key.F8 {
+                    Backend.delete-selected();
+                    EventResult.accept
+                } else {
+                    EventResult.reject
+                }
+            } else {
+                EventResult.reject
+            }
+        }
+        HorizontalLayout {
+            // Sidebar
+            Rectangle {
+                width: 210px;
+                background: Theme.sidebar;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 4px;
+                    Rectangle {
+                        height: 62px;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            spacing: 10px;
+                            Rectangle {
+                                y: 12px;
+                                width: 36px;
+                                height: 36px;
+                                border-radius: 10px;
+                                background: Theme.accent;
+                                Icon { glyph: "\u{E753}"; color: #ffffff; font-size: 20px; }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Text { text: "Rclone Lite"; font-size: 15px; font-weight: 800; color: Theme.text; }
+                                Text { text: "Gestor de la nube"; font-size: 11px; color: Theme.text-faint; }
+                            }
                         }
                     }
-                }
-                NavItem { glyph: "\u{E8B7}"; text: "Explorador"; active: Backend.page == 0; clicked => { Backend.page = 0; } }
-                NavItem { glyph: "\u{E753}"; text: "Remotos"; active: Backend.page == 1; badge: Backend.remotes.length; clicked => { Backend.page = 1; } }
-                NavItem { glyph: "\u{E8F1}"; text: "Trabajos"; active: Backend.page == 2; badge: Backend.jobs.length; clicked => { Backend.page = 2; } }
-                NavItem { glyph: "\u{E8CE}"; text: "Montajes"; active: Backend.page == 3; clicked => { Backend.page = 3; } }
-                NavItem { glyph: "\u{E81C}"; text: "Historial"; active: Backend.page == 4; clicked => { Backend.page = 4; } }
-                Rectangle { vertical-stretch: 1; }
-                NavItem { glyph: "\u{E713}"; text: "Ajustes"; active: Backend.page == 5; clicked => { Backend.page = 5; } }
-                Rectangle {
-                    height: 44px;
-                    VerticalLayout {
-                        padding-left: 8px;
-                        padding-top: 6px;
-                        spacing: 2px;
-                        HorizontalLayout {
-                            spacing: 6px;
-                            Rectangle {
-                                y: 4px;
-                                width: 8px;
-                                height: 8px;
-                                border-radius: 4px;
-                                background: Backend.rclone-ok ? Theme.success : Theme.danger;
+                    NavItem { glyph: "\u{E8B7}"; text: "Explorador"; active: Backend.page == 0; clicked => { Backend.page = 0; } }
+                    NavItem { glyph: "\u{E753}"; text: "Remotos"; active: Backend.page == 1; badge: Backend.remotes.length; clicked => { Backend.page = 1; } }
+                    NavItem { glyph: "\u{E8F1}"; text: "Trabajos"; active: Backend.page == 2; badge: Backend.jobs.length; clicked => { Backend.page = 2; } }
+                    NavItem { glyph: "\u{E8CE}"; text: "Montajes"; active: Backend.page == 3; clicked => { Backend.page = 3; } }
+                    NavItem { glyph: "\u{E81C}"; text: "Historial"; active: Backend.page == 4; clicked => { Backend.page = 4; } }
+                    Rectangle { vertical-stretch: 1; }
+                    NavItem { glyph: "\u{E713}"; text: "Ajustes"; active: Backend.page == 5; clicked => { Backend.page = 5; } }
+                    Rectangle {
+                        height: 44px;
+                        VerticalLayout {
+                            padding-left: 8px;
+                            padding-top: 6px;
+                            spacing: 2px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Rectangle {
+                                    y: 4px;
+                                    width: 8px;
+                                    height: 8px;
+                                    border-radius: 4px;
+                                    background: Backend.rclone-ok ? Theme.success : Theme.danger;
+                                }
+                                Text {
+                                    text: Backend.rclone-ok ? "rclone conectado" : "rclone no encontrado";
+                                    font-size: 11px;
+                                    color: Theme.text-dim;
+                                }
                             }
-                            Text {
-                                text: Backend.rclone-ok ? "rclone conectado" : "rclone no encontrado";
-                                font-size: 11px;
-                                color: Theme.text-dim;
-                            }
+                            Text { text: "v" + Backend.app-version; font-size: 10px; color: Theme.text-faint; }
                         }
-                        Text { text: "v" + Backend.app-version; font-size: 10px; color: Theme.text-faint; }
                     }
                 }
             }
-        }
-        Sep { vertical: true; }
+            Sep { vertical: true; }
 
-        // Content
-        Rectangle {
-            horizontal-stretch: 1;
-            if Backend.page == 0: ExplorerPage { }
-            if Backend.page == 1: RemotesPage { }
-            if Backend.page == 2: JobsPage { }
-            if Backend.page == 3: MountsPage { }
-            if Backend.page == 4: HistoryPage { }
-            if Backend.page == 5: SettingsPage { }
+            // Content
+            Rectangle {
+                horizontal-stretch: 1;
+                if Backend.page == 0: ExplorerPage { }
+                if Backend.page == 1: RemotesPage { }
+                if Backend.page == 2: JobsPage { }
+                if Backend.page == 3: MountsPage { }
+                if Backend.page == 4: HistoryPage { }
+                if Backend.page == 5: SettingsPage { }
 
-            // Missing-rclone banner
-            if !Backend.rclone-ok && Backend.page != 5: Rectangle {
-                y: 0;
-                height: 40px;
-                background: Theme.danger.with-alpha(0.9);
-                HorizontalLayout {
-                    padding-left: 16px;
-                    padding-right: 10px;
-                    spacing: 10px;
-                    Text {
-                        text: "No se encontró rclone. Instálalo (winget install Rclone.Rclone) o indica su ruta en Ajustes.";
-                        color: #ffffff;
-                        font-size: 12px;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                        overflow: elide;
+                // Missing-rclone banner
+                if !Backend.rclone-ok && Backend.page != 5: Rectangle {
+                    y: 0;
+                    height: 40px;
+                    background: Theme.danger.with-alpha(0.9);
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        Text {
+                            text: "No se encontró rclone. Instálalo (winget install Rclone.Rclone) o indica su ruta en Ajustes.";
+                            color: #ffffff;
+                            font-size: 12px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Btn { y: 6px; compact: true; text: "Ir a Ajustes"; clicked => { Backend.page = 5; } }
                     }
-                    Rectangle { horizontal-stretch: 1; }
-                    Btn { y: 6px; compact: true; text: "Ir a Ajustes"; clicked => { Backend.page = 5; } }
                 }
             }
         }
