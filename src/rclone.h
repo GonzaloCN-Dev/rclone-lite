@@ -23,6 +23,7 @@ struct Entry {
 struct RemoteInfo {
     std::string name;
     std::string type;
+    bool own_client = false; // drive: has its own client_id (not rclone's shared one)
 };
 
 struct TransferFile {
@@ -96,6 +97,9 @@ public:
                            const std::vector<std::pair<std::string, std::string>> &params,
                            ProcessHandle *handle = nullptr) const;
     OpResult delete_remote(const std::string &name) const;
+    // Sets the given options on an existing remote (empty values are written too).
+    OpResult update_remote(const std::string &name,
+                           const std::vector<std::pair<std::string, std::string>> &params) const;
     OpResult reconnect_remote(const std::string &name, ProcessHandle *handle = nullptr) const;
 
     // `spec` is a full rclone path such as "gdrive:Photos" or "C:/Users".

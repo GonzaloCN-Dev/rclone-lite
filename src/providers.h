@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <string>
 #include <utility>
@@ -25,7 +25,9 @@ inline const std::vector<Provider> &providers()
 {
     static const std::vector<Provider> list = {
         { "Google Drive", "drive",
-          "Se abrirá el navegador para que autorices el acceso a tu cuenta de Google.", {},
+          "Se abrirá el navegador para que autorices el acceso a tu cuenta de Google. Recomendado: usa tu propio client_id y client_secret (gratis, en Google Cloud Console). La clave compartida de rclone tiene una cuota común que se agota y hace todo muy lento.",
+          { { "Client ID de Google (recomendado)", "client_id", "xxxx.apps.googleusercontent.com", false },
+            { "Client secret (recomendado)", "client_secret", "", true } },
           { { "scope", "drive" } } },
         { "OneDrive", "onedrive",
           "Se abrirá el navegador para iniciar sesión con tu cuenta de Microsoft.", {}, {} },

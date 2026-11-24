@@ -248,8 +248,10 @@ std::vector<RemoteInfo> Rclone::list_remotes() const
     for (auto it = j.begin(); it != j.end(); ++it) {
         RemoteInfo ri;
         ri.name = it.key();
-        if (it->is_object())
+        if (it->is_object()) {
             ri.type = jv(*it, "type", "");
+            ri.own_client = !jv(*it, "client_id", "").empty();
+        }
         out.push_back(std::move(ri));
     }
     return out;
@@ -279,6 +281,16 @@ OpResult Rclone::create_remote(const std::string &name, const std::string &type,
     if (r.exit_code == 0)
         return { true, {} };
     return { false, error_text(r) };
+}
+
+OpResult Rclone::update_remote(const std::string &name,
+                               const std::vector<std::pair<std::string, std::string>> &params) const
+{
+    std::vector<std::string> args { "config", "update", name, "--non-interactive" };
+    for (const auto &[k, v] : params)
+        args.push_back(k + "=" + v);
+    auto r = run_process(exe_, args);
+    return { r.exit_code == 0, r.exit_code == 0 ? "" : error_text(r) };
 }
 
 OpResult Rclone::delete_remote(const std::string &name) const
