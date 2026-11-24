@@ -89,6 +89,8 @@ export global Backend {
     in property <[FieldRow]> remote-fields;
     in property <string> remote-help;
     in property <string> remote-edit-name;
+    in property <bool> remote-oauth: false;
+    callback remote-reauth();
     in property <bool> remote-busy: false;
     in property <string> remote-error;
     callback remote-type-changed(int);

@@ -3,8 +3,8 @@
 1 ICON "../assets/icon.ico"
 
 1 VERSIONINFO
-FILEVERSION 1,1,4,0
-PRODUCTVERSION 1,1,4,0
+FILEVERSION 1,1,5,0
+PRODUCTVERSION 1,1,5,0
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
@@ -12,12 +12,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Gonzalo Cruz Nuñez"
             VALUE "FileDescription", "Rclone Lite - Gestor gratuito de la nube"
-            VALUE "FileVersion", "1.1.4"
+            VALUE "FileVersion", "1.1.5"
             VALUE "InternalName", "RcloneLite"
             VALUE "LegalCopyright", "© 2026 Gonzalo Cruz Nuñez"
             VALUE "OriginalFilename", "RcloneLite.exe"
             VALUE "ProductName", "Rclone Lite"
-            VALUE "ProductVersion", "1.1.4"
+            VALUE "ProductVersion", "1.1.5"
         END
     END
     BLOCK "VarFileInfo"

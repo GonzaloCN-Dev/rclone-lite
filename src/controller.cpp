@@ -289,6 +289,7 @@ private:
     void cancel_create_remote();
     void delete_remote();
     void reconnect_remote();
+    void remote_reauth();
     void note_throttle(const std::shared_ptr<Task> &t);
 
     // ---- jobs
@@ -1463,6 +1464,7 @@ void Controller::remote_new()
     }
     edit_name_.clear();
     B().set_remote_edit_name(S(""));
+    B().set_remote_oauth(false);
     B().set_remote_error(S(""));
     B().set_remote_busy(false);
     B().set_remote_name_input(S(""));
@@ -1609,6 +1611,10 @@ void Controller::remote_edit()
                 auto ends = [&](const std::string &s) { return l.size() >= s.size() && l.compare(l.size() - s.size(), s.size(), s) == 0; };
                 return l.find("pass") != std::string::npos || l.find("secret") != std::string::npos || l == "key" || ends("_key");
             };
+            if (type == "drive") {
+                fields.push_back({ "Client ID de Google (opcional)", "client_id", "xxxx.apps.googleusercontent.com", false });
+                fields.push_back({ "Client secret (opcional)", "client_secret", "", true });
+            }
             for (auto &[k, v] : opts)
                 if (k != "type" && k != "token" && !known(k))
                     fields.push_back({ k, k, "", secret_key(k) });
@@ -1637,9 +1643,16 @@ void Controller::remote_edit()
                 rows.push_back(std::move(r));
             }
             field_rows_->set_vector(std::move(rows));
+            bool oauth = type == "drive" || type == "onedrive" || type == "dropbox" || type == "box" || type == "pcloud";
+            std::string help = "Edita «" + name + "» (tipo " + type + "). Los campos de contraseña aparecen vacíos y solo cambian si escribes algo. Para quitar un valor, vacía su campo.";
+            if (type == "drive")
+                help += " Client ID y Client secret son opcionales: son tus propias credenciales de Google y se cambian a la vez. Déjalos como están para seguir con la clave compartida de rclone.";
+            if (oauth)
+                help += " Con «Reautenticar en el navegador» inicias sesión de nuevo sin cambiar nada más.";
+            B().set_remote_oauth(oauth);
             B().set_remote_edit_name(S(name));
             B().set_remote_name_input(S(name));
-            B().set_remote_help(S("Edita «" + name + "» (tipo " + type + "). Los campos de contraseña aparecen vacíos y solo cambian si escribes algo. Para quitar un valor, vacía su campo."));
+            B().set_remote_help(S(help));
             B().set_remote_error(S(""));
             B().set_remote_busy(false);
             B().set_dialog(S("remote"));
@@ -1772,6 +1785,32 @@ void Controller::reconnect_remote()
                 toast("«" + name + "» reconectado.");
             else
                 toast(r.message, true);
+        });
+    });
+}
+
+void Controller::remote_reauth()
+{
+    if (edit_name_.empty() || B().get_remote_busy())
+        return;
+    std::string name = edit_name_;
+    B().set_remote_error(S(""));
+    B().set_remote_busy(true);
+    remote_handle_ = std::make_shared<ProcessHandle>();
+    auto handle = remote_handle_;
+    spawn([this, name, handle] {
+        OpResult r = rc_.reconnect_remote(name, handle.get());
+        post([this, name, r, handle] {
+            if (handle != remote_handle_)
+                return;
+            B().set_remote_busy(false);
+            if (!r.ok) {
+                B().set_remote_error(S(handle->killed() ? "Cancelado." : r.message));
+                return;
+            }
+            B().set_dialog(S(""));
+            toast("«" + name + "» reautenticado.");
+            add_log("info", "Remoto reautenticado: " + name);
         });
     });
 }
@@ -2419,6 +2458,7 @@ void Controller::bind_callbacks()
     });
     b.on_remote_create([this] { create_remote(); });
     b.on_remote_edit([this] { remote_edit(); });
+    b.on_remote_reauth([this] { remote_reauth(); });
     b.on_remote_cancel_create([this] { cancel_create_remote(); });
 
     // jobs

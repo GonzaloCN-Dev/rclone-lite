@@ -361,6 +361,7 @@ export component RemoteWizard inherits Modal {
                     }
                 }
                 Rectangle { horizontal-stretch: 1; }
+                if Backend.remote-oauth && !Backend.remote-busy: Btn { text: "Reautenticar en el navegador"; clicked => { Backend.remote-reauth(); } }
                 Btn { text: Backend.remote-busy ? "Cancelar" : "Cerrar"; clicked => { Backend.remote-cancel-create(); } }
                 Btn {
                     text: Backend.remote-edit-name != "" ? "Guardar cambios" : "Crear remoto";

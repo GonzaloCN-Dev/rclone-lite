@@ -1,17 +1,16 @@
-# Rclone Lite 1.1.4
+# Rclone Lite 1.1.5
 
-Simpler Google Drive setup.
+Choose how to sign in when you edit a remote.
 
 ## What's changed
 
-- **Removed the own-credentials step.** Settings no longer has the "Google Drive: credenciales propias" section, and the Google Drive wizard no longer asks for a client ID and secret. Creating a Drive remote is just "sign in with your Google account", as in the other providers.
-- **Remote editor kept.** "Editar" in Remotos still works for every remote; any option, including `client_id`, can still be changed there if you need it.
-- **Throttling warning kept.** If Google answers `403 Quota exceeded` during a transfer, the Registro, a toast and the task show a notice.
-- **Drive tuning kept.** With "auto tune" on, copies to or from Drive use a lighter API pacer and at least 16 transfers and 16 checkers.
+- **Editing a Google Drive remote** now offers both options: type your own Client ID and Client secret (optional, changed together), or press "Reautenticar en el navegador" to sign in again with your Google account without changing anything else.
+- **"Reautenticar en el navegador"** also appears when editing OneDrive, Dropbox, Box and pCloud remotes.
+- Everything else in the editor is unchanged: the name and type are fixed, passwords stay empty unless you type a new one, and nothing is saved if you change nothing.
 
 ## Install
 
-Download `RcloneLite-Setup-1.1.4.exe` below and run it. Version 1.1.3 offers the update on its own. The installer is unsigned, so Windows SmartScreen may show an unknown-publisher warning.
+Download `RcloneLite-Setup-1.1.5.exe` below and run it. Version 1.1.4 offers the update on its own. The installer is unsigned, so Windows SmartScreen may show an unknown-publisher warning.
 
 ## Notes
 
