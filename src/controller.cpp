@@ -134,6 +134,7 @@ struct Task {
     std::string speed;
     std::string detail = "Iniciando…";
     double speed_val = 0;
+    bool throttled = false;
     int64_t bytes = 0, total = 0, files = 0;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 };
@@ -161,6 +162,13 @@ struct MountRt {
     std::shared_ptr<ProcessHandle> handle;
     std::string detail;
 };
+
+bool is_throttle_message(const std::string &msg)
+{
+    std::string l = lower(msg);
+    return l.find("quota exceeded") != std::string::npos || l.find("ratelimitexceeded") != std::string::npos
+           || l.find("rate limit exceeded") != std::string::npos || l.find("too many requests") != std::string::npos;
+}
 
 bool is_drive_letter(const std::string &s)
 {
@@ -274,12 +282,15 @@ private:
     void refresh_remote_rows();
     void select_remote(int i);
     void remote_new();
+    void remote_edit();
+    void save_remote_edit();
     void apply_provider(int i);
     void create_remote();
     void cancel_create_remote();
     void delete_remote();
     void reconnect_remote();
     void refresh_drive_ui();
+    void note_throttle(const std::shared_ptr<Task> &t, const std::string &src, const std::string &dst);
     void select_drive_remote(int i);
     void save_drive_creds();
 
@@ -328,6 +339,11 @@ private:
     std::vector<std::string> field_values_;
     std::shared_ptr<ProcessHandle> remote_handle_;
     std::string last_suggestion_;
+    std::string edit_name_;
+    std::string edit_type_;
+    std::vector<std::string> edit_keys_;
+    std::vector<std::string> edit_initial_;
+    std::vector<bool> edit_secret_;
     int about_gen_ = 0;
     std::vector<std::string> drive_names_;
     std::shared_ptr<slint::VectorModel<slint::SharedString>> drive_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();
@@ -1135,16 +1151,18 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                     t->bytes = b;
                     t->total = tot;
                     t->files = f;
-                    t->detail = detail;
+                    t->detail = t->throttled ? detail + "  |  Google limita las peticiones" : detail;
                     t->speed = sp;
                     t->speed_val = speed;
                     t->progress = prog;
                     refresh_active();
                 });
             };
-            auto on_log = [&](const std::string &level, const std::string &msg) {
+            auto on_log = [&, src = s.src, dst = s.dst](const std::string &level, const std::string &msg) {
                 if (level == "error" || level == "warning" || level == "notice" || level == "info")
                     post([this, level, msg] { add_log(level, msg); });
+                if (is_throttle_message(msg))
+                    post([this, t, src, dst] { note_throttle(t, src, dst); });
             };
             OpResult r = s.file ? rc_.transfer_file(s.src, s.dst, s.mode == "move", s.opt, on_stats, on_log, &t->handle)
                                 : rc_.transfer(s.src, s.dst, s.opt, on_stats, on_log, &t->handle);
@@ -1450,6 +1468,8 @@ void Controller::remote_new()
             labels.push_back(S(p.label));
         provider_labels_->set_vector(labels);
     }
+    edit_name_.clear();
+    B().set_remote_edit_name(S(""));
     B().set_remote_error(S(""));
     B().set_remote_busy(false);
     B().set_remote_name_input(S(""));
@@ -1499,6 +1519,10 @@ void Controller::apply_provider(int i)
 
 void Controller::create_remote()
 {
+    if (!edit_name_.empty()) {
+        save_remote_edit();
+        return;
+    }
     const auto &list = providers();
     int idx = B().get_remote_type_index();
     if (idx < 0 || idx >= static_cast<int>(list.size()))
@@ -1562,6 +1586,152 @@ void Controller::create_remote()
     });
 }
 
+void Controller::remote_edit()
+{
+    int i = B().get_remote_selected();
+    if (i < 0 || i >= static_cast<int>(remotes_.size()))
+        return;
+    std::string name = remotes_[i].name;
+    std::string type = remotes_[i].type;
+    spawn([this, name, type] {
+        auto opts = rc_.remote_options(name);
+        post([this, name, type, opts] {
+            if (opts.empty()) {
+                toast("No se pudo leer la configuración de «" + name + "».", true);
+                return;
+            }
+            std::vector<ProviderField> fields;
+            for (auto &p : providers())
+                if (!p.type.empty() && p.type == type)
+                    for (auto &f : p.fields)
+                        fields.push_back(f);
+            auto known = [&](const std::string &k) {
+                for (auto &f : fields)
+                    if (f.key == k)
+                        return true;
+                return false;
+            };
+            auto secret_key = [](const std::string &k) {
+                std::string l = lower(k);
+                auto ends = [&](const std::string &s) { return l.size() >= s.size() && l.compare(l.size() - s.size(), s.size(), s) == 0; };
+                return l.find("pass") != std::string::npos || l.find("secret") != std::string::npos || l == "key" || ends("_key");
+            };
+            for (auto &[k, v] : opts)
+                if (k != "type" && k != "token" && !known(k))
+                    fields.push_back({ k, k, "", secret_key(k) });
+            fields.push_back({ "Parámetros nuevos (opcional)", "__params", "clave=valor clave2=valor2", false });
+
+            edit_name_ = name;
+            edit_type_ = type;
+            edit_keys_.clear();
+            edit_initial_.clear();
+            edit_secret_.clear();
+            field_values_.clear();
+            std::vector<FieldRow> rows;
+            for (auto &f : fields) {
+                auto it = opts.find(f.key);
+                bool has = it != opts.end() && !it->second.empty();
+                std::string initial = (!f.secret && it != opts.end()) ? it->second : "";
+                edit_keys_.push_back(f.key);
+                edit_initial_.push_back(initial);
+                edit_secret_.push_back(f.secret);
+                field_values_.push_back(initial);
+                FieldRow r;
+                r.label = S(f.label);
+                r.hint = S(f.secret && has ? "Dejar vacío para no cambiarlo" : f.hint);
+                r.secret = f.secret;
+                r.value = S(initial);
+                rows.push_back(std::move(r));
+            }
+            field_rows_->set_vector(std::move(rows));
+            B().set_remote_edit_name(S(name));
+            B().set_remote_name_input(S(name));
+            B().set_remote_help(S("Edita «" + name + "» (tipo " + type + "). Los campos de contraseña aparecen vacíos y solo cambian si escribes algo. Para quitar un valor, vacía su campo."));
+            B().set_remote_error(S(""));
+            B().set_remote_busy(false);
+            B().set_dialog(S("remote"));
+        });
+    });
+}
+
+void Controller::save_remote_edit()
+{
+    std::string name = edit_name_;
+    std::vector<std::pair<std::string, std::string>> params;
+    bool id_changed = false, secret_changed = false;
+    std::string new_id;
+    for (size_t i = 0; i < edit_keys_.size() && i < field_values_.size(); ++i) {
+        const std::string &key = edit_keys_[i];
+        const std::string val = trim(field_values_[i]);
+        if (key == "__params") {
+            std::istringstream is(val);
+            for (std::string kv; is >> kv;) {
+                auto eq = kv.find('=');
+                if (eq != std::string::npos && eq > 0)
+                    params.push_back({ kv.substr(0, eq), kv.substr(eq + 1) });
+            }
+            continue;
+        }
+        if (edit_secret_[i] ? val.empty() : val == edit_initial_[i])
+            continue;
+        params.push_back({ key, val });
+        if (key == "client_id") {
+            id_changed = true;
+            new_id = val;
+        } else if (key == "client_secret") {
+            secret_changed = true;
+        }
+    }
+    bool reauth = false;
+    if (edit_type_ == "drive") {
+        if (id_changed && new_id.empty() && !secret_changed) {
+            params.push_back({ "client_secret", "" });
+            secret_changed = true;
+        }
+        if (id_changed != secret_changed) {
+            B().set_remote_error(S("Cambia el client ID y el client secret a la vez."));
+            return;
+        }
+        reauth = id_changed;
+    }
+    if (params.empty()) {
+        B().set_dialog(S(""));
+        toast("Sin cambios.");
+        return;
+    }
+    if (reauth && !tasks_.empty()) {
+        B().set_remote_error(S("Hay transferencias en curso. Cambiar las credenciales obliga a reconectar y las cortaría."));
+        return;
+    }
+
+    B().set_remote_error(S(""));
+    B().set_remote_busy(true);
+    remote_handle_ = std::make_shared<ProcessHandle>();
+    auto handle = remote_handle_;
+    spawn([this, name, params, reauth, handle] {
+        OpResult r = rc_.update_remote(name, params);
+        bool saved = r.ok;
+        if (r.ok && reauth)
+            r = rc_.reconnect_remote(name, handle.get());
+        post([this, name, r, saved, handle] {
+            if (handle != remote_handle_)
+                return;
+            B().set_remote_busy(false);
+            if (saved)
+                load_remotes_async();
+            if (!r.ok) {
+                std::string msg = handle->killed() ? "Cancelado." : r.message;
+                if (saved)
+                    msg += " Los cambios se guardaron, pero hay que reconectar «" + name + "».";
+                B().set_remote_error(S(msg));
+                return;
+            }
+            B().set_dialog(S(""));
+            toast("Remoto «" + name + "» actualizado.");
+            add_log("info", "Remoto editado: " + name);
+        });
+    });
+}
 void Controller::cancel_create_remote()
 {
     if (B().get_remote_busy() && remote_handle_) {
@@ -1613,6 +1783,25 @@ void Controller::reconnect_remote()
     });
 }
 
+void Controller::note_throttle(const std::shared_ptr<Task> &t, const std::string &src, const std::string &dst)
+{
+    if (t->throttled)
+        return;
+    t->throttled = true;
+    bool shared_key = false;
+    for (auto &r : remotes_) {
+        if (r.type != "drive" || r.own_client)
+            continue;
+        std::string pre = r.name + ":";
+        if (src.rfind(pre, 0) == 0 || dst.rfind(pre, 0) == 0)
+            shared_key = true;
+    }
+    std::string msg = "Google está limitando las peticiones (cuota agotada) y la transferencia irá muy lenta.";
+    if (shared_key)
+        msg += " Usas la clave compartida de rclone: crea tu propio client ID en Ajustes > Google Drive.";
+    add_log("warning", msg);
+    toast(shared_key ? "Google limita las peticiones. Crea tu propio client ID en Ajustes." : "Google limita las peticiones (cuota agotada).", true);
+}
 void Controller::refresh_drive_ui()
 {
     std::string keep;
@@ -2332,6 +2521,7 @@ void Controller::bind_callbacks()
             field_values_[i] = T(t);
     });
     b.on_remote_create([this] { create_remote(); });
+    b.on_remote_edit([this] { remote_edit(); });
     b.on_remote_cancel_create([this] { cancel_create_remote(); });
     b.on_drive_remote_changed([this](int i) { select_drive_remote(i); });
     b.on_drive_creds_save([this] { save_drive_creds(); });

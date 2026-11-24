@@ -77,6 +77,7 @@ export global Backend {
     callback remote-new();
     callback remote-delete();
     callback remote-reconnect();
+    callback remote-edit();
     callback remote-browse(int);
     callback remote-mount();
     callback remotes-refresh();
@@ -87,6 +88,7 @@ export global Backend {
     in-out property <string> remote-name-input;
     in property <[FieldRow]> remote-fields;
     in property <string> remote-help;
+    in property <string> remote-edit-name;
     in property <bool> remote-busy: false;
     in property <string> remote-error;
     callback remote-type-changed(int);

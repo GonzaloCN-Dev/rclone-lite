@@ -166,6 +166,12 @@ export component RemotesPage inherits Rectangle {
                                 clicked => { Backend.remote-mount(); }
                             }
                             Btn {
+                                text: "Editar";
+                                icon: "\u{E70F}";
+                                enabled: Backend.remote-selected >= 0;
+                                clicked => { Backend.remote-edit(); }
+                            }
+                            Btn {
                                 text: "Reconectar";
                                 icon: "\u{E895}";
                                 enabled: Backend.remote-selected >= 0;

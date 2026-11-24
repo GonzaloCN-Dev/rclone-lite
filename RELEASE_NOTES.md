@@ -1,17 +1,18 @@
-# Rclone Lite 1.1.2
+# Rclone Lite 1.1.3
 
-Your own Google client ID, set from the app.
+Edit saved connections, and a clear warning when Google throttles you.
 
 ## What's new
 
-- **Own Google Drive credentials.** Settings has a new "Google Drive: credenciales propias" section. Pick a Drive remote, enter your `client_id` and `client_secret`, and press "Guardar y reconectar" to authorize again in the browser. It also shows whether the remote uses rclone's shared key.
-- **In the new-remote wizard.** Creating a Google Drive remote now has optional Client ID and Client secret fields.
-- **Why it matters.** rclone's shared key has a quota common to all its users. When it runs out Google answers `403 Quota exceeded ... Requests per minute` and transfers drop to a few KB/s. With your own client ID the quota is yours. Creating one is free; the "Cómo crear mis credenciales" button opens the guide.
-- The client secret is stored only by rclone in `rclone.conf`, never in the app's settings. Changing credentials is refused while transfers are running, since reconnecting would interrupt them.
+- **Edit saved remotes.** Remotos has a new "Editar" button. It opens the same dialog as the wizard with the current values. The name and type can't be changed. Password fields appear empty and only change if you type something; other fields change only if you edit them (empty a field to remove it). A "Parametros nuevos" box accepts extra `key=value` pairs. Nothing is saved when you change nothing.
+- **Google Drive in the editor.** `client_id` and `client_secret` must change together, and the remote then reconnects in the browser. It is refused while transfers are running.
+- **Throttling warning.** When Google answers `403 Quota exceeded` or `Rate limit exceeded` during a transfer, the app now shows a warning in the Registro, a toast, and a note on the task. If the remote uses rclone's shared key it suggests creating your own client ID in Ajustes.
+- **Faster Google Drive transfers.** With "auto tune" on, copies to or from Drive use a lighter API pacer and at least 16 transfers and 16 checkers. Drive's speed varies a lot, so results will too.
+- Secrets are still stored only by rclone in `rclone.conf`, never in the app's settings.
 
 ## Install
 
-Download `RcloneLite-Setup-1.1.2.exe` below and run it. Version 1.1.1 offers the update on its own. The installer is unsigned, so Windows SmartScreen may show an unknown-publisher warning.
+Download `RcloneLite-Setup-1.1.3.exe` below and run it. Version 1.1.2 offers the update on its own. The installer is unsigned, so Windows SmartScreen may show an unknown-publisher warning.
 
 ## Notes
 

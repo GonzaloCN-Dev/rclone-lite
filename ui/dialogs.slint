@@ -279,7 +279,7 @@ export component JobDialog inherits Modal {
 }
 
 export component RemoteWizard inherits Modal {
-    title: "Nuevo remoto";
+    title: Backend.remote-edit-name != "" ? "Editar remoto" : "Nuevo remoto";
     dlg-width: 580px;
     dlg-height: 640px;
     close => { Backend.remote-cancel-create(); }
@@ -291,7 +291,7 @@ export component RemoteWizard inherits Modal {
                 padding: 20px;
                 spacing: 14px;
                 alignment: start;
-                VerticalLayout {
+                if Backend.remote-edit-name == "": VerticalLayout {
                     spacing: 5px;
                     FieldLabel { text: "Tipo de almacenamiento"; }
                     Dropdown {
@@ -305,6 +305,7 @@ export component RemoteWizard inherits Modal {
                     FieldLabel { text: "Nombre del remoto"; }
                     TextField {
                         value: Backend.remote-name-input;
+                        enabled: Backend.remote-edit-name == "";
                         placeholder: "Ej. mi-drive (sin espacios ni dos puntos)";
                         edited(t) => { Backend.remote-name-input = t; }
                     }
@@ -328,6 +329,7 @@ export component RemoteWizard inherits Modal {
                     spacing: 5px;
                     FieldLabel { text: f.label; }
                     TextField {
+                        value: f.value;
                         placeholder: f.hint;
                         password: f.secret;
                         edited(t) => { Backend.remote-field-edited(i, t); }
@@ -352,7 +354,7 @@ export component RemoteWizard inherits Modal {
                     spacing: 10px;
                     Spinner { y: 5px; size: 20px; }
                     Text {
-                        text: "Creando… si se abre el navegador, autoriza el acceso.";
+                        text: Backend.remote-edit-name != "" ? "Guardando… si se abre el navegador, autoriza el acceso." : "Creando… si se abre el navegador, autoriza el acceso.";
                         font-size: 12px;
                         color: Theme.text-dim;
                         vertical-alignment: center;
@@ -361,7 +363,7 @@ export component RemoteWizard inherits Modal {
                 Rectangle { horizontal-stretch: 1; }
                 Btn { text: Backend.remote-busy ? "Cancelar" : "Cerrar"; clicked => { Backend.remote-cancel-create(); } }
                 Btn {
-                    text: "Crear remoto";
+                    text: Backend.remote-edit-name != "" ? "Guardar cambios" : "Crear remoto";
                     kind: "primary";
                     enabled: !Backend.remote-busy;
                     clicked => { Backend.remote-create(); }
