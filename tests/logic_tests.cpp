@@ -1,7 +1,11 @@
 #include "rclone.h"
+#include "scheduler.h"
 #include "store.h"
 
+#include <windows.h>
+
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -81,6 +85,45 @@ int main()
             "import report describes destructive and sanitized content");
     require(!store.parse_jobs_import("{}", jobs, report), "non-array import is rejected");
 
+    Schedule interval;
+    interval.enabled = true;
+    interval.kind = "interval";
+    interval.interval_minutes = 15;
+    interval.last_run = 1000;
+    require(!schedule_is_due(interval, 1899) && schedule_is_due(interval, 1900),
+            "interval schedules become due at their exact minute boundary");
+    Schedule daily;
+    daily.enabled = true;
+    daily.kind = "daily";
+    daily.daily_time = "02:30";
+    std::time_t now = std::time(nullptr);
+    std::tm local {};
+    localtime_s(&local, &now);
+    local.tm_hour = 2;
+    local.tm_min = 30;
+    local.tm_sec = 0;
+    local.tm_isdst = -1;
+    const int64_t today_at_230 = static_cast<int64_t>(std::mktime(&local));
+    daily.last_run = today_at_230 - 86400;
+    require(!schedule_is_due(daily, today_at_230 - 60) && schedule_is_due(daily, today_at_230),
+            "daily schedule fires once when the local-time target is reached");
+    daily.last_run = today_at_230;
+    require(!schedule_is_due(daily, today_at_230 + 60),
+            "daily schedule does not fire a second time on the same day");
+    const auto task_args = background_task_arguments("C:/Program Files/Rclone Lite/RcloneLite.exe");
+    auto tr = std::find(task_args.begin(), task_args.end(), "/TR");
+    require(tr != task_args.end() && tr + 1 != task_args.end() &&
+                    (tr + 1)->find("\"C:/Program Files/Rclone Lite/RcloneLite.exe\"") == 0 &&
+                    (tr + 1)->find("--run-due-jobs") != std::string::npos,
+            "background task action quotes the executable path and selects headless mode");
+    if (std::getenv("RCLONE_LITE_TEST_TASK_SCHEDULER")) {
+        const std::string task_name = "RcloneLite CI test " + std::to_string(GetCurrentProcessId());
+        const OpResult created = configure_background_task(current_executable_path(), true, task_name);
+        const OpResult removed = configure_background_task(current_executable_path(), false, task_name);
+        require(created.ok, "Windows Task Scheduler accepts a per-user background task");
+        require(removed.ok, "Windows Task Scheduler removes the temporary background task");
+    }
+
     auto data_root = std::filesystem::temp_directory_path() / L"RcloneLiteLogicTests";
     std::error_code ec;
     std::filesystem::remove_all(data_root, ec);
@@ -96,6 +139,7 @@ int main()
     first.options.update_existing = true;
     persisted.jobs.push_back(first);
     persisted.settings.update_existing = true;
+    persisted.settings.background_schedules = true;
     require(persisted.save(), "initial store save succeeds");
     persisted.jobs[0].name = "Second version";
     require(persisted.save(), "updated store save succeeds and creates backup");
@@ -107,8 +151,9 @@ int main()
     recovered.load();
     require(recovered.jobs.size() == 1 && recovered.jobs[0].name == "Known good",
             "corrupt jobs file recovers the last valid backup");
-    require(recovered.jobs[0].options.update_existing && recovered.settings.update_existing,
-            "update conflict policy persists for jobs and application defaults");
+    require(recovered.jobs[0].options.update_existing && recovered.settings.update_existing &&
+                    recovered.settings.background_schedules,
+            "transfer conflict and background scheduling settings persist");
     require(!recovered.warnings.empty() &&
                     std::filesystem::exists(data_root / L"RcloneLite" / L"jobs.json.corrupt"),
             "store recovery reports and preserves the damaged file");

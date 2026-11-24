@@ -258,6 +258,7 @@ void Store::load()
         settings.auto_update = jv(j, "auto_update", true);
         settings.auto_tune = jv(j, "auto_tune", true);
         settings.update_existing = jv(j, "update_existing", false);
+        settings.background_schedules = jv(j, "background_schedules", false);
         settings.bwlimit = jv(j, "bwlimit", "");
         settings.extra_flags = jv(j, "extra_flags", "");
     }
@@ -322,6 +323,7 @@ bool Store::save() const
                { "auto_update", settings.auto_update },
                { "auto_tune", settings.auto_tune },
                { "update_existing", settings.update_existing },
+               { "background_schedules", settings.background_schedules },
                { "bwlimit", settings.bwlimit },
                { "extra_flags", settings.extra_flags } };
     put(L"settings.json", s.dump(2, ' ', false, json::error_handler_t::replace));

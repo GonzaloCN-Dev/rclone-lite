@@ -19,6 +19,7 @@ struct Settings {
     bool auto_update = true;
     bool auto_tune = true;
     bool update_existing = false;
+    bool background_schedules = false;
     std::string bwlimit;
     std::string extra_flags;
 };

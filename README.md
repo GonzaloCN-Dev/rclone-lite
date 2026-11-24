@@ -33,7 +33,7 @@ Rclone Lite es una interfaz gráfica en español para [rclone](https://rclone.or
 | --- | --- |
 | **Explorador de dos paneles** | Trabajar con disco local y remotos; copiar, mover, renombrar, borrar, crear carpetas y copiar enlaces. Atajos F2, F5–F8. |
 | **Comparar carpetas** | Identificar elementos exclusivos de cada lado, diferencias y coincidencias; elegir elementos y copiar o borrar. |
-| **Trabajos** | Copiar, sincronizar o mover; simulación (dry-run); varios destinos 1:N; filtros; programación; importar y exportar JSON con revisión y sanitización. |
+| **Trabajos** | Copiar, sincronizar o mover; simulación (dry-run); varios destinos 1:N; filtros; programación con opción de ejecutarlos aunque la app esté cerrada; importar y exportar JSON con revisión y sanitización. |
 | **Remotos** | Administrar remotos y configurarlos con el asistente de rclone para Drive, OneDrive, Dropbox, S3, SFTP, WebDAV, MEGA y más. |
 | **Montajes** | Montar un remoto como unidad de Windows (requiere [WinFsp](https://winfsp.dev)). |
 | **Seguimiento** | Ver transferencias con su velocidad (KB/s o MB/s) y una gráfica en tiempo real, elementos completados e historial de operaciones. |
@@ -45,13 +45,13 @@ Rclone Lite es una interfaz gráfica en español para [rclone](https://rclone.or
 
 ## Instalación
 
-1. Descarga **`RcloneLite-Setup-1.2.0.exe`** desde [la última versión](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest).
+1. Descarga **`RcloneLite-Setup-1.3.0.exe`** desde [la última versión](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest).
 2. Ejecuta el instalador. No requiere permisos de administrador para instalarse en tu usuario.
 3. Inicia Rclone Lite desde el menú Inicio.
 
 El instalador incluye el runtime de Visual C++ y comprueba si **rclone** y **WinFsp** están en el equipo: si faltan, te ofrece descargarlos e instalarlos (con verificación SHA-256). **WinFsp solo es necesario para montar unidades.** El instalador es x64 para Windows 10/11. No está firmado, por lo que Windows SmartScreen puede mostrar un aviso de editor desconocido.
 
-También puedes descargar el instalador directamente: **[RcloneLite-Setup-1.2.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/download/v1.2.0/RcloneLite-Setup-1.2.0.exe)**.
+También puedes descargar el instalador directamente: **[RcloneLite-Setup-1.3.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/download/v1.3.0/RcloneLite-Setup-1.3.0.exe)**.
 
 ## Requisitos
 
@@ -75,11 +75,13 @@ El ejecutable queda en `build\RcloneLite.exe`, junto a `slint_cpp.dll`. Para gen
 powershell -ExecutionPolicy Bypass -File .\installer\build-installer.ps1
 ```
 
-El instalador queda en `dist\RcloneLite-Setup-1.2.0.exe`.
+El instalador queda en `dist\RcloneLite-Setup-1.3.0.exe`.
+
+Las pruebas unitarias y de integración se ejecutan con `ctest --test-dir build --output-on-failure`. Para la integración con rclone real, define `RCLONE_EXE` con la ruta a `rclone.exe`; si no está definida, esa prueba se omite.
 
 ## Datos y privacidad
 
-La configuración, trabajos e historial de la aplicación se guardan localmente en `%APPDATA%\RcloneLite`. Los trabajos programados se ejecutan mientras Rclone Lite está abierto. Las credenciales y remotos son gestionados por rclone según su propia configuración. Rclone Lite no requiere una cuenta propia ni un servicio de nube intermediario.
+La configuración, trabajos e historial de la aplicación se guardan localmente en `%APPDATA%\RcloneLite`. Los trabajos programados se ejecutan mientras Rclone Lite está abierto; si activas la opción correspondiente, también pueden ejecutarse con la ventana cerrada mientras tu sesión de Windows siga iniciada. Las credenciales y remotos son gestionados por rclone según su propia configuración. Rclone Lite no requiere una cuenta propia ni un servicio de nube intermediario.
 
 ## Licencias
 
@@ -113,10 +115,11 @@ Hecho con cuidado para que gestionar tus archivos en la nube sea más sencillo.
 - Transfer status with live speed (KB/s or MB/s) and a real-time chart, completed items, history, system tray and Windows notifications.
 - Built-in updater: checks GitHub releases, verifies the download and installs it automatically.
 - Spanish interface; dark and light themes.
+- Optional Windows Task Scheduler integration to run scheduled jobs while the app is closed (the Windows user session must remain signed in).
 
 ### Download
 
-Download **[RcloneLite-Setup-1.2.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest)** for 64-bit Windows 10/11. The installer includes the Visual C++ runtime and offers to download rclone and WinFsp (SHA-256 verified) when they are missing. WinFsp is only needed for drive mounts. The installer is unsigned, so SmartScreen may warn about an unknown publisher.
+Download **[RcloneLite-Setup-1.3.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest)** for 64-bit Windows 10/11. The installer includes the Visual C++ runtime and offers to download rclone and WinFsp (SHA-256 verified) when they are missing. WinFsp is only needed for drive mounts. The installer is unsigned, so SmartScreen may warn about an unknown publisher.
 
 ### Build
 

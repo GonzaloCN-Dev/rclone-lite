@@ -673,6 +673,11 @@ export component SettingsPage inherits Rectangle {
                             checked: Backend.set-update-existing;
                             toggled(v) => { Backend.set-update-existing = v; }
                         }
+                        Check {
+                            text: "Ejecutar trabajos programados con la app cerrada (requiere sesión iniciada en Windows)";
+                            checked: Backend.set-background-schedules;
+                            toggled(v) => { Backend.set-background-schedules = v; }
+                        }
                     }
                 }
 

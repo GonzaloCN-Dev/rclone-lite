@@ -15,6 +15,7 @@
 #include "proc.h"
 #include "providers.h"
 #include "rclone.h"
+#include "scheduler.h"
 #include "store.h"
 #include "updater.h"
 
@@ -309,6 +310,7 @@ private:
     bool save_job_from_form(std::string &id_out);
     void run_job(const std::string &id, bool dry, const std::string &trigger);
     void check_schedules();
+    void sync_background_scheduler();
     std::string schedule_text(const Schedule &s) const;
     void export_jobs();
     void import_jobs();
@@ -342,6 +344,7 @@ private:
     std::set<std::string> running_jobs_;
     std::set<std::string> reauth_busy_;
     bool save_warned_ = false;
+    bool background_scheduler_active_ = false;
 
     std::shared_ptr<slint::VectorModel<slint::SharedString>> remote_names_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();
     std::shared_ptr<slint::VectorModel<RemoteRow>> remote_rows_ = std::make_shared<slint::VectorModel<RemoteRow>>();
@@ -2249,7 +2252,8 @@ bool Controller::save_job_from_form(std::string &id_out)
         *old = j;
         id_out = j.id;
     }
-    persist();
+    if (persist())
+        sync_background_scheduler();
     refresh_jobs();
     B().set_job_editing(false);
     return true;
@@ -2306,35 +2310,33 @@ void Controller::run_job(const std::string &id, bool dry, const std::string &tri
 
 void Controller::check_schedules()
 {
-    if (!rc_.available())
+    if (!rc_.available() || background_scheduler_active_)
         return;
     int64_t now = now_unix();
-    std::time_t tt = static_cast<std::time_t>(now);
-    std::tm lt {};
-    localtime_s(&lt, &tt);
     std::vector<std::string> due;
     for (auto &j : store_.jobs) {
-        if (!j.schedule.enabled || running_jobs_.count(j.id))
-            continue;
-        if (j.schedule.kind == "daily") {
-            int hh = 2, mm = 0;
-            std::sscanf(j.schedule.daily_time.c_str(), "%d:%d", &hh, &mm);
-            std::tm today = lt;
-            today.tm_hour = hh;
-            today.tm_min = mm;
-            today.tm_sec = 0;
-            today.tm_isdst = -1;
-            int64_t target = static_cast<int64_t>(std::mktime(&today));
-            if (now >= target && j.schedule.last_run < target)
-                due.push_back(j.id);
-        } else if (now >= j.schedule.last_run + static_cast<int64_t>(j.schedule.interval_minutes) * 60) {
+        if (!running_jobs_.count(j.id) && schedule_is_due(j.schedule, now))
             due.push_back(j.id);
-        }
     }
     for (auto &id : due) {
         if (Job *j = store_.find_job(id))
             add_log("info", "Ejecución programada: " + j->name);
         run_job(id, false, "scheduled");
+    }
+}
+
+void Controller::sync_background_scheduler()
+{
+    const bool has_enabled_schedule = std::any_of(store_.jobs.begin(), store_.jobs.end(),
+                                                   [](const Job &job) { return job.schedule.enabled; });
+    const bool enable = store_.settings.background_schedules && has_enabled_schedule;
+    OpResult result = configure_background_task(current_executable_path(), enable);
+    background_scheduler_active_ = enable && result.ok;
+    if (!result.ok) {
+        add_log("error", "No se pudo actualizar la tarea programada de Windows: " + result.message);
+        toast("No se pudo actualizar la tarea programada de Windows. Los trabajos seguirán ejecutándose mientras " +
+                  std::string("Rclone Lite esté abierto. ") + result.message,
+              true);
     }
 }
 
@@ -2402,6 +2404,7 @@ void Controller::import_jobs()
                     store_.jobs.resize(old_size);
                     return;
                 }
+                sync_background_scheduler();
                 refresh_jobs();
                 toast("Se importaron " + std::to_string(imported.size()) + " trabajos.");
             });
@@ -2602,6 +2605,7 @@ void Controller::load_settings_into_ui()
     B().set_set_auto_update(s.auto_update);
     B().set_set_auto_tune(s.auto_tune);
     B().set_set_update_existing(s.update_existing);
+    B().set_set_background_schedules(s.background_schedules);
     rc_.set_auto_tune(s.auto_tune);
     ui_->global<Theme>().set_dark(s.dark_theme);
 }
@@ -2620,8 +2624,10 @@ void Controller::apply_settings()
     s.auto_update = B().get_set_auto_update();
     s.auto_tune = B().get_set_auto_tune();
     s.update_existing = B().get_set_update_existing();
+    s.background_schedules = B().get_set_background_schedules();
     rc_.set_auto_tune(s.auto_tune);
-    persist();
+    if (persist())
+        sync_background_scheduler();
     load_settings_into_ui();
     bool had = rc_.available();
     refresh_rclone_state();
@@ -2797,7 +2803,8 @@ void Controller::bind_callbacks()
         j.last_status.clear();
         j.schedule.last_run = now_unix();
         store_.jobs.push_back(j);
-        persist();
+        if (persist())
+            sync_background_scheduler();
         refresh_jobs();
     });
     b.on_job_delete([this] {
@@ -2808,7 +2815,8 @@ void Controller::bind_callbacks()
         confirm("Eliminar trabajo", "Se eliminará el trabajo «" + store_.jobs[i].name + "».", "Eliminar", true, [this, id] {
             auto &v = store_.jobs;
             v.erase(std::remove_if(v.begin(), v.end(), [&](const Job &j) { return j.id == id; }), v.end());
-            persist();
+            if (persist())
+                sync_background_scheduler();
             B().set_job_selected(-1);
             refresh_jobs();
         });
@@ -2987,6 +2995,7 @@ void Controller::start()
     if (!store_.warnings.empty())
         toast(store_.warnings.front(), true);
     bind_callbacks();
+    sync_background_scheduler();
 
     remote_names_.push_back("Disco local");
     remote_names_model_->push_back(S("Disco local"));

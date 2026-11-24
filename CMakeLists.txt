@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(RcloneLite VERSION 1.2.0 LANGUAGES CXX RC)
+project(RcloneLite VERSION 1.3.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +36,7 @@ add_executable(RcloneLite WIN32
     src/controller.cpp
     src/proc.cpp
     src/rclone.cpp
+    src/scheduler.cpp
     src/store.cpp
     src/platform.cpp
     src/updater.cpp
@@ -63,9 +64,11 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(RcloneLiteLogicTests
         tests/logic_tests.cpp
-        src/store.cpp
-        src/rclone.cpp
+        src/platform.cpp
         src/proc.cpp
+        src/rclone.cpp
+        src/scheduler.cpp
+        src/store.cpp
     )
     set_target_properties(RcloneLiteLogicTests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     target_include_directories(RcloneLiteLogicTests PRIVATE src)
@@ -75,4 +78,21 @@ if(BUILD_TESTING)
         target_compile_options(RcloneLiteLogicTests PRIVATE /utf-8 /W3 /permissive- /EHsc)
     endif()
     add_test(NAME RcloneLiteLogicTests COMMAND RcloneLiteLogicTests)
+    add_executable(RcloneLiteRcloneIntegrationTests
+        tests/rclone_integration_tests.cpp
+        src/platform.cpp
+        src/proc.cpp
+        src/rclone.cpp
+        src/scheduler.cpp
+        src/store.cpp
+    )
+    set_target_properties(RcloneLiteRcloneIntegrationTests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_include_directories(RcloneLiteRcloneIntegrationTests PRIVATE src)
+    target_compile_definitions(RcloneLiteRcloneIntegrationTests PRIVATE _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(RcloneLiteRcloneIntegrationTests PRIVATE nlohmann_json::nlohmann_json)
+    if(MSVC)
+        target_compile_options(RcloneLiteRcloneIntegrationTests PRIVATE /utf-8 /W3 /permissive- /EHsc)
+    endif()
+    add_test(NAME RcloneLiteRcloneIntegrationTests COMMAND RcloneLiteRcloneIntegrationTests)
+    set_tests_properties(RcloneLiteRcloneIntegrationTests PROPERTIES SKIP_RETURN_CODE 77)
 endif()

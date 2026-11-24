@@ -4,7 +4,7 @@ $payload = Join-Path $PSScriptRoot "payload"
 
 $exe = Join-Path $root "build\RcloneLite.exe"
 $dll = Join-Path $root "build\slint_cpp.dll"
-$crt = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\Community\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory |
+$crt = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory |
     Where-Object { $_.FullName -notmatch "debug" } | Sort-Object FullName | Select-Object -Last 1
 foreach ($f in @($exe, $dll)) { if (-not $f -or -not (Test-Path $f)) { throw "Falta: $f" } }
 
