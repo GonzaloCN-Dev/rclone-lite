@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(RcloneLite VERSION 1.0.0 LANGUAGES CXX RC)
+project(RcloneLite VERSION 1.1.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,11 +38,12 @@ add_executable(RcloneLite WIN32
     src/rclone.cpp
     src/store.cpp
     src/platform.cpp
+    src/updater.cpp
     resources/app.rc
 )
 
 target_include_directories(RcloneLite PRIVATE src)
-target_compile_definitions(RcloneLite PRIVATE _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_definitions(RcloneLite PRIVATE APP_VERSION="${PROJECT_VERSION}" _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 if(MSVC)
     target_compile_options(RcloneLite PRIVATE /utf-8 /W3 /permissive- /EHsc)
     target_link_options(RcloneLite PRIVATE /ENTRY:mainCRTStartup)

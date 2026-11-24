@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <functional>
 #include <string>
@@ -17,9 +17,15 @@ bool set_clipboard(const std::string &utf8);
 
 bool winfsp_installed();
 bool path_exists(const std::string &path);
+std::string temp_dir(); // user temp folder without trailing slash
 std::vector<char> free_drive_letters();
 std::vector<std::string> local_drives(); // "C:" ...
 std::string user_profile();
+
+// Appends a line to %APPDATA%\RcloneLite\errors.log (trimmed when it grows too large).
+void log_error(const std::string &message);
+// Records fatal crashes (unhandled SEH/C++ exceptions, terminate) in errors.log.
+void install_crash_handlers();
 
 // Children (rclone processes) die together with this process.
 void kill_children_on_exit();

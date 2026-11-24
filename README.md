@@ -36,19 +36,20 @@ Rclone Lite es una interfaz gráfica en español para [rclone](https://rclone.or
 | **Trabajos** | Copiar, sincronizar o mover; simulación (dry-run); varios destinos 1:N; filtros; programación; importar y exportar JSON. |
 | **Remotos** | Administrar remotos y configurarlos con el asistente de rclone para Drive, OneDrive, Dropbox, S3, SFTP, WebDAV, MEGA y más. |
 | **Montajes** | Montar un remoto como unidad de Windows (requiere [WinFsp](https://winfsp.dev)). |
-| **Seguimiento** | Ver transferencias, elementos completados e historial de operaciones. |
+| **Seguimiento** | Ver transferencias con su velocidad (KB/s o MB/s) y una gráfica en tiempo real, elementos completados e historial de operaciones. |
+| **Actualizaciones** | Avisa cuando hay una versión nueva en GitHub y la instala sola, cerrando y reabriendo la aplicación. Se puede desactivar en Ajustes. |
 | **Bandeja y avisos** | Mantener la aplicación en la bandeja, recibir notificaciones al terminar y evitar instancias duplicadas. |
 | **Personalización** | Interfaz en español, temas oscuro y claro y confirmación antes de borrar. |
 
 ## Instalación
 
-1. Descarga **`RcloneLite-Setup-1.0.0.exe`** desde [la última versión](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest).
+1. Descarga **`RcloneLite-Setup-1.1.0.exe`** desde [la última versión](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest).
 2. Ejecuta el instalador. No requiere permisos de administrador para instalarse en tu usuario.
 3. Inicia Rclone Lite desde el menú Inicio.
 
-El instalador incluye rclone y el runtime de Visual C++, así que no hace falta instalar esas dependencias por separado. **WinFsp solo es necesario para montar unidades** y debe instalarse aparte. El instalador es x64 para Windows 10/11. No está firmado, por lo que Windows SmartScreen puede mostrar un aviso de editor desconocido.
+El instalador incluye el runtime de Visual C++ y comprueba si **rclone** y **WinFsp** están en el equipo: si faltan, te ofrece descargarlos e instalarlos (con verificación SHA-256). **WinFsp solo es necesario para montar unidades.** El instalador es x64 para Windows 10/11. No está firmado, por lo que Windows SmartScreen puede mostrar un aviso de editor desconocido.
 
-También puedes descargar el instalador directamente: **[RcloneLite-Setup-1.0.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/download/v1.0.0/RcloneLite-Setup-1.0.0.exe)**.
+También puedes descargar el instalador directamente: **[RcloneLite-Setup-1.1.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/download/v1.1.0/RcloneLite-Setup-1.1.0.exe)**.
 
 ## Requisitos
 
@@ -72,7 +73,7 @@ El ejecutable queda en `build\RcloneLite.exe`, junto a `slint_cpp.dll`. Para gen
 powershell -ExecutionPolicy Bypass -File .\installer\build-installer.ps1
 ```
 
-El instalador queda en `dist\RcloneLite-Setup-1.0.0.exe`.
+El instalador queda en `dist\RcloneLite-Setup-1.1.0.exe`.
 
 ## Datos y privacidad
 
@@ -107,12 +108,13 @@ Hecho con cuidado para que gestionar tus archivos en la nube sea más sencillo.
 - Copy, sync and move jobs; dry-run, filters, 1-to-many destinations, scheduling and JSON import/export.
 - Remote management and rclone configuration wizard for Drive, OneDrive, Dropbox, S3, SFTP, WebDAV, MEGA and more.
 - Windows drive mounts (requires [WinFsp](https://winfsp.dev)).
-- Transfer status, completed items, history, system tray and Windows notifications.
+- Transfer status with live speed (KB/s or MB/s) and a real-time chart, completed items, history, system tray and Windows notifications.
+- Built-in updater: checks GitHub releases, verifies the download and installs it automatically.
 - Spanish interface; dark and light themes.
 
 ### Download
 
-Download **[RcloneLite-Setup-1.0.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest)** for 64-bit Windows 10/11. The installer includes rclone and the Visual C++ runtime. WinFsp is only needed for drive mounts. The installer is unsigned, so SmartScreen may warn about an unknown publisher.
+Download **[RcloneLite-Setup-1.1.0.exe](https://github.com/GonzaloCN-Dev/rclone-lite/releases/latest)** for 64-bit Windows 10/11. The installer includes the Visual C++ runtime and offers to download rclone and WinFsp (SHA-256 verified) when they are missing. WinFsp is only needed for drive mounts. The installer is unsigned, so SmartScreen may warn about an unknown publisher.
 
 ### Build
 

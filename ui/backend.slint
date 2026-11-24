@@ -5,7 +5,7 @@ export global Backend {
 
     in property <bool> rclone-ok: false;
     in property <string> rclone-version;
-    in property <string> app-version: "1.0.0";
+    in property <string> app-version: "";
     in property <string> status-text;
 
     // Explorer
@@ -137,6 +137,8 @@ export global Backend {
     in-out property <int> bottom-tab: 0;
     in-out property <bool> bottom-open: true;
     in property <string> total-speed;
+    in property <[float]> speed-history;
+    in property <string> speed-peak;
     callback cancel-transfer(string);
     callback cancel-all();
     callback clear-done();
@@ -151,6 +153,10 @@ export global Backend {
     in-out property <bool> set-confirm-delete: true;
     in-out property <bool> set-notify-done: true;
     in-out property <bool> set-minimize-tray: false;
+    in-out property <bool> set-auto-update: true;
+    in property <string> update-status;
+    in property <bool> update-busy: false;
+    callback check-updates();
     callback settings-apply();
     callback settings-detect();
     callback settings-browse();

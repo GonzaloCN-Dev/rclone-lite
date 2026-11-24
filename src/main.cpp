@@ -18,6 +18,7 @@ int main(int argc, char **argv)
     // The OpenGL renderer shows a blank window on some drivers; software is reliable.
     if (!std::getenv("SLINT_BACKEND"))
         _putenv_s("SLINT_BACKEND", "winit-software");
+    rl::plat::install_crash_handlers();
     rl::plat::kill_children_on_exit();
     return run_app(hidden);
 }

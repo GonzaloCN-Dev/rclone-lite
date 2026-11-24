@@ -1,4 +1,4 @@
-﻿#include "rclone.h"
+#include "rclone.h"
 
 #include <windows.h>
 
@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include <nlohmann/json.hpp>
+#include "jsonutil.h"
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -81,11 +82,11 @@ Stats parse_stats(const json &j)
     if (j.contains("transferring") && j["transferring"].is_array()) {
         for (const auto &t : j["transferring"]) {
             TransferFile f;
-            f.name = t.value("name", "");
-            f.size = t.value("size", static_cast<int64_t>(0));
-            f.bytes = t.value("bytes", static_cast<int64_t>(0));
-            f.percent = t.value("percentage", 0.0);
-            f.speed = t.value("speed", 0.0);
+            f.name = jv(t, "name", "");
+            f.size = jv(t, "size", static_cast<int64_t>(0));
+            f.bytes = jv(t, "bytes", static_cast<int64_t>(0));
+            f.percent = jv(t, "percentage", 0.0);
+            f.speed = jv(t, "speed", 0.0);
             s.active.push_back(std::move(f));
         }
     }
@@ -230,7 +231,7 @@ std::vector<RemoteInfo> Rclone::list_remotes() const
         RemoteInfo ri;
         ri.name = it.key();
         if (it->is_object())
-            ri.type = it->value("type", "");
+            ri.type = jv(*it, "type", "");
         out.push_back(std::move(ri));
     }
     return out;
@@ -289,12 +290,12 @@ std::optional<std::vector<Entry>> Rclone::list(const std::string &spec, std::str
     out.reserve(j.size());
     for (const auto &e : j) {
         Entry en;
-        en.name = e.value("Name", "");
-        en.is_dir = e.value("IsDir", false);
-        en.size = en.is_dir ? 0 : e.value("Size", static_cast<int64_t>(0));
+        en.name = jv(e, "Name", "");
+        en.is_dir = jv(e, "IsDir", false);
+        en.size = en.is_dir ? 0 : jv(e, "Size", static_cast<int64_t>(0));
         if (en.size < 0)
             en.size = 0;
-        en.modtime = e.value("ModTime", "");
+        en.modtime = jv(e, "ModTime", "");
         out.push_back(std::move(en));
     }
     return out;
@@ -340,9 +341,9 @@ std::optional<Rclone::About> Rclone::about(const std::string &spec) const
     if (!j.is_object())
         return std::nullopt;
     About a;
-    a.total = j.value("total", static_cast<int64_t>(-1));
-    a.used = j.value("used", static_cast<int64_t>(-1));
-    a.free = j.value("free", static_cast<int64_t>(-1));
+    a.total = jv(j, "total", static_cast<int64_t>(-1));
+    a.used = jv(j, "used", static_cast<int64_t>(-1));
+    a.free = jv(j, "free", static_cast<int64_t>(-1));
     return a;
 }
 
@@ -401,9 +402,9 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
                 on_stats(parse_stats(j["stats"]));
             return;
         }
-        std::string level = j.value("level", "info");
-        std::string msg = j.value("msg", "");
-        std::string object = j.value("object", "");
+        std::string level = jv(j, "level", "info");
+        std::string msg = jv(j, "msg", "");
+        std::string object = jv(j, "object", "");
         if (!object.empty() && msg.find(object) == std::string::npos)
             msg = object + ": " + msg;
         if (level == "error")

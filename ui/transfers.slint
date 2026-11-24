@@ -47,6 +47,63 @@ component Tab inherits Rectangle {
     }
 }
 
+component SpeedChart inherits Rectangle {
+    background: Theme.surface2;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    VerticalLayout {
+        padding: 10px;
+        padding-bottom: 8px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: "Velocidad";
+                font-size: 11px;
+                color: Theme.text-faint;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: Backend.speed-peak;
+                font-size: 11px;
+                color: Theme.text-faint;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: Backend.total-speed != "" ? Backend.total-speed : "0 B/s";
+            font-size: 20px;
+            font-weight: 700;
+            color: Theme.accent;
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 40px;
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+            HorizontalLayout {
+                spacing: 1px;
+                for v in Backend.speed-history: Rectangle {
+                    Rectangle {
+                        y: parent.height - self.height;
+                        height: max(v > 0 ? 2px : 0px, parent.height * v);
+                        background: Theme.accent;
+                        opacity: 0.85;
+                        border-radius: 1px;
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component TransferPanel inherits Rectangle {
     background: Theme.surface;
     border-radius: 10px;
@@ -131,9 +188,13 @@ export component TransferPanel inherits Rectangle {
                         text: "Copia o sincroniza archivos y verás aquí el progreso.";
                     }
                 }
-                if Backend.active-transfers.length > 0: ListView {
+                if Backend.active-transfers.length > 0: HorizontalLayout {
+                  spacing: 10px;
+                  padding: 10px;
+                  padding-left: 0px;
+                  ListView {
                     for t[i] in Backend.active-transfers: Rectangle {
-                        height: 58px;
+                        height: 66px;
                         VerticalLayout {
                             padding-left: 14px;
                             padding-right: 14px;
@@ -180,6 +241,10 @@ export component TransferPanel inherits Rectangle {
                             background: Theme.border;
                         }
                     }
+                  }
+                  SpeedChart {
+                      width: 260px;
+                  }
                 }
             }
 

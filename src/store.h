@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <cstdint>
 #include <string>
@@ -16,6 +16,7 @@ struct Settings {
     bool confirm_delete = true;
     bool notify_done = true;
     bool minimize_to_tray = false;
+    bool auto_update = true;
     std::string bwlimit;
     std::string extra_flags;
 };

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <ctime>
+#include <deque>
 #include <map>
 #include <memory>
 #include <set>
@@ -15,6 +16,7 @@
 #include "providers.h"
 #include "rclone.h"
 #include "store.h"
+#include "updater.h"
 
 using namespace rl;
 
@@ -26,9 +28,31 @@ template<class F>
 void post(F f)
 {
     slint::invoke_from_event_loop([f = std::move(f)]() mutable {
-        if (g_alive)
+        if (!g_alive)
+            return;
+        try {
             f();
+        } catch (const std::exception &e) {
+            rl::plat::log_error(std::string("Excepción en la interfaz: ") + e.what());
+        } catch (...) {
+            rl::plat::log_error("Excepción desconocida en la interfaz");
+        }
     });
+}
+
+// Worker threads must never let an exception escape: that terminates the whole process.
+template<class F>
+void spawn(F f)
+{
+    std::thread([f = std::move(f)]() mutable {
+        try {
+            f();
+        } catch (const std::exception &e) {
+            rl::plat::log_error(std::string("Excepción en un hilo de trabajo: ") + e.what());
+        } catch (...) {
+            rl::plat::log_error("Excepción desconocida en un hilo de trabajo");
+        }
+    }).detach();
 }
 
 slint::SharedString S(const std::string &s)
@@ -325,6 +349,14 @@ private:
     slint::Timer toast_timer_;
     slint::Timer poll_timer_;
     int tick_ = 0;
+    static constexpr int kSpeedSamples = 60;
+    std::deque<double> speed_hist_;
+    std::shared_ptr<slint::VectorModel<float>> speed_model_ = std::make_shared<slint::VectorModel<float>>();
+    void sample_speed();
+    void check_updates(bool manual);
+    void on_update_result(const updater::Release &r, bool manual);
+    void start_update(const updater::Release &r);
+    bool update_busy_ = false;
 };
 
 // ------------------------------------------------------------------ infrastructure
@@ -393,10 +425,10 @@ void Controller::refresh_rclone_state()
         B().set_rclone_version(S(""));
         return;
     }
-    std::thread([this] {
+    spawn([this] {
         std::string v = rc_.version();
         post([this, v] { B().set_rclone_version(S(v)); });
-    }).detach();
+    });
 }
 
 void Controller::load_remotes_async()
@@ -405,10 +437,10 @@ void Controller::load_remotes_async()
         apply_remotes({});
         return;
     }
-    std::thread([this] {
+    spawn([this] {
         auto list = rc_.list_remotes();
         post([this, list]() mutable { apply_remotes(std::move(list)); });
-    }).detach();
+    });
 }
 
 void Controller::apply_remotes(std::vector<RemoteInfo> list)
@@ -602,7 +634,7 @@ void Controller::load(int side)
 
     set_state(true, "");
     std::string spec = p.spec();
-    std::thread([this, side, gen, spec, set_state] {
+    spawn([this, side, gen, spec, set_state] {
         std::string err;
         auto r = rc_.list(spec, &err);
         post([this, side, gen, set_state, r, err]() mutable {
@@ -625,7 +657,7 @@ void Controller::load(int side)
             }
             rebuild_model(side);
         });
-    }).detach();
+    });
 }
 
 void Controller::pane_click(int side, int row, bool ctrl, bool shift)
@@ -790,7 +822,7 @@ void Controller::delete_selected()
         std::string base = P.spec();
         pane_[side].loading = true;
         if (side == 0) B().set_left_loading(true); else B().set_right_loading(true);
-        std::thread([this, side, sel, base] {
+        spawn([this, side, sel, base] {
             std::string errors;
             int ok = 0;
             for (auto &e : sel) {
@@ -810,7 +842,7 @@ void Controller::delete_selected()
                     toast(errors, true);
                 refresh_pane(side);
             });
-        }).detach();
+        });
     };
     if (!store_.settings.confirm_delete) {
         run();
@@ -831,14 +863,14 @@ void Controller::new_folder()
     ask("Carpeta nueva", "Se creará en " + pane_[side].spec(), "Nombre de la carpeta", "", "Crear",
         [this, side](const std::string &name) {
             std::string spec = entry_join(pane_[side], name);
-            std::thread([this, side, spec] {
+            spawn([this, side, spec] {
                 OpResult r = rc_.mkdir(spec);
                 post([this, side, r] {
                     if (!r.ok)
                         toast(r.message, true);
                     refresh_pane(side);
                 });
-            }).detach();
+            });
         });
 }
 
@@ -860,7 +892,7 @@ void Controller::rename_selected()
                 return;
             std::string from = entry_join(pane_[side], old);
             std::string to = entry_join(pane_[side], name);
-            std::thread([this, side, from, to, is_dir] {
+            spawn([this, side, from, to, is_dir] {
                 OpResult r = rc_.rename(from, to, is_dir);
                 post([this, side, r] {
                     if (!r.ok)
@@ -868,7 +900,7 @@ void Controller::rename_selected()
                     pane_[side].selected.clear();
                     refresh_pane(side);
                 });
-            }).detach();
+            });
         });
 }
 
@@ -887,7 +919,7 @@ void Controller::copy_link()
         return;
     }
     toast("Obteniendo enlace…");
-    std::thread([this, spec] {
+    spawn([this, spec] {
         std::string link = rc_.link(spec);
         post([this, link] {
             if (link.empty())
@@ -897,7 +929,7 @@ void Controller::copy_link()
                 toast("Enlace copiado al portapapeles.");
             }
         });
-    }).detach();
+    });
 }
 
 // ------------------------------------------------------------------ tasks
@@ -922,6 +954,141 @@ void Controller::refresh_active()
     B().set_total_speed(S(total_speed > 0 ? format_speed(total_speed) : ""));
 }
 
+// ------------------------------------------------------------------ updates
+
+void Controller::check_updates(bool manual)
+{
+    if (update_busy_) {
+        if (manual)
+            toast("Ya hay una actualización en curso.");
+        return;
+    }
+    update_busy_ = true;
+    B().set_update_busy(true);
+    B().set_update_status(S("Buscando actualizaciones…"));
+    spawn([this, manual] {
+        updater::Release r = updater::fetch_latest();
+        post([this, r, manual] { on_update_result(r, manual); });
+    });
+}
+
+void Controller::on_update_result(const updater::Release &r, bool manual)
+{
+    update_busy_ = false;
+    B().set_update_busy(false);
+
+    if (!r.ok) {
+        B().set_update_status(S(manual ? "No se pudo comprobar: " + r.error : ""));
+        if (manual)
+            toast("No se pudo buscar actualizaciones: " + r.error, true);
+        else
+            plat::log_error("Comprobación de actualizaciones: " + r.error);
+        return;
+    }
+    if (!updater::is_newer(r.version, APP_VERSION)) {
+        B().set_update_status(S("Tienes la última versión (" + std::string(APP_VERSION) + ")."));
+        if (manual)
+            toast("Rclone Lite está actualizado.");
+        return;
+    }
+
+    B().set_update_status(S("Hay una versión nueva: " + r.version));
+    if (!manual && !T(B().get_dialog()).empty())
+        return; // do not interrupt another dialog; the user can check from Settings
+
+    std::string text = "Está disponible Rclone Lite " + r.version + " (tienes la " + APP_VERSION + ").";
+    if (r.size > 0)
+        text += "\nDescarga: " + format_size(r.size) + ".";
+    text += "\n\nSe descargará, se comprobará su integridad y se instalará. La aplicación se cerrará y volverá a abrirse sola.";
+    if (!tasks_.empty())
+        text += "\n\nAtención: hay transferencias en curso y se cancelarán.";
+    confirm("Actualización disponible", text, "Actualizar ahora", false, [this, r] { start_update(r); });
+}
+
+void Controller::start_update(const updater::Release &r)
+{
+    if (update_busy_)
+        return;
+    update_busy_ = true;
+    B().set_update_busy(true);
+    B().set_update_status(S("Descargando la versión " + r.version + "…"));
+    toast("Descargando la actualización…");
+    add_log("info", "Descargando Rclone Lite " + r.version);
+
+    std::string dest = plat::temp_dir() + "\\RcloneLite-update\\" + r.installer_name;
+    spawn([this, r, dest] {
+        auto last = std::chrono::steady_clock::now();
+        std::string err = updater::download(r.installer_url, dest, [&](int64_t done, int64_t) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - last < std::chrono::milliseconds(400))
+                return;
+            last = now;
+            int64_t total = r.size;
+            std::string msg = "Descargando la versión " + r.version + ": " + format_size(done) +
+                              (total > 0 ? " de " + format_size(total) : "");
+            post([this, msg] { B().set_update_status(S(msg)); });
+        });
+        if (err.empty()) {
+            std::string got = updater::sha256_file(dest);
+            if (got != r.sha256) {
+                err = "La descarga está dañada o no coincide con la suma SHA-256 publicada.";
+                std::error_code ec;
+                std::filesystem::remove(std::filesystem::path(utf8_to_wide(dest)), ec);
+            }
+        }
+        post([this, err, dest, r] {
+            update_busy_ = false;
+            B().set_update_busy(false);
+            if (!err.empty()) {
+                B().set_update_status(S("Error al actualizar: " + err));
+                toast("No se pudo actualizar: " + err, true);
+                add_log("error", "Actualización: " + err);
+                return;
+            }
+            B().set_update_status(S("Instalando la versión " + r.version + "…"));
+            if (!updater::run_installer(dest)) {
+                B().set_update_status(S("No se pudo iniciar el instalador."));
+                toast("No se pudo iniciar el instalador (¿cancelaste el permiso de administrador?).", true);
+                return;
+            }
+            slint::quit_event_loop();
+        });
+    });
+}
+// Called once per second: pushes the combined speed of all running tasks into the chart history.
+void Controller::sample_speed()
+{
+    double total = 0;
+    for (auto &t : tasks_)
+        total += t->speed_val;
+    if (tasks_.empty() && speed_hist_.empty())
+        return;
+
+    speed_hist_.push_back(total);
+    while (static_cast<int>(speed_hist_.size()) > kSpeedSamples)
+        speed_hist_.pop_front();
+
+    if (tasks_.empty()) {
+        bool all_zero = std::all_of(speed_hist_.begin(), speed_hist_.end(), [](double v) { return v <= 0; });
+        if (all_zero) {
+            speed_hist_.clear();
+            speed_model_->set_vector({});
+            B().set_speed_peak(S(""));
+            return;
+        }
+    }
+
+    double peak = *std::max_element(speed_hist_.begin(), speed_hist_.end());
+    std::vector<float> norm;
+    norm.reserve(kSpeedSamples);
+    for (int i = static_cast<int>(speed_hist_.size()); i < kSpeedSamples; ++i)
+        norm.push_back(0.f);
+    for (double v : speed_hist_)
+        norm.push_back(peak > 0 ? static_cast<float>(v / peak) : 0.f);
+    speed_model_->set_vector(std::move(norm));
+    B().set_speed_peak(S(peak > 0 ? "máx. " + format_speed(peak) : ""));
+}
+
 void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                             std::function<void(bool, bool, const std::string &)> on_done)
 {
@@ -936,7 +1103,7 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
     B().set_bottom_open(true);
     add_log("info", t->title + "  (" + t->route + ")");
 
-    std::thread([this, t, steps = std::move(steps), on_done = std::move(on_done)] {
+    spawn([this, t, steps = std::move(steps), on_done = std::move(on_done)] {
         int64_t base_bytes = 0, base_total = 0, base_files = 0;
         bool ok = true;
         std::string err;
@@ -995,7 +1162,7 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
             if (on_done)
                 on_done(ok, cancelled, err);
         });
-    }).detach();
+    });
 }
 
 void Controller::finish_task(const std::shared_ptr<Task> &t, bool ok, bool cancelled, const std::string &err)
@@ -1086,7 +1253,7 @@ void Controller::run_compare()
     std::string l = cmp_left_, r = cmp_right_;
     TransferOptions opt;
     opt.checkers = store_.settings.checkers;
-    std::thread([this, gen, handle, l, r, opt] {
+    spawn([this, gen, handle, l, r, opt] {
         std::vector<CompareItem> items;
         OpResult res = rc_.compare(l, r, opt, items, handle.get());
         post([this, gen, res, items]() mutable {
@@ -1102,7 +1269,7 @@ void Controller::run_compare()
             cmp_sel_.assign(cmp_items_.size(), 0);
             rebuild_compare_rows();
         });
-    }).detach();
+    });
 }
 
 void Controller::rebuild_compare_rows()
@@ -1198,7 +1365,7 @@ void Controller::compare_delete(bool left)
             "Se eliminarán " + std::to_string(list.size()) + " archivos de " + root + ".\nEsta acción no se puede deshacer.",
             "Eliminar", true, [this, list, root] {
                 B().set_compare_busy(true);
-                std::thread([this, list, root] {
+                spawn([this, list, root] {
                     OpResult r = rc_.delete_listed(root, list);
                     post([this, r] {
                         if (!r.ok)
@@ -1209,7 +1376,7 @@ void Controller::compare_delete(bool left)
                         refresh_pane(0);
                         refresh_pane(1);
                     });
-                }).detach();
+                });
             });
 }
 
@@ -1248,7 +1415,7 @@ void Controller::select_remote(int i)
     int gen = ++about_gen_;
     std::string spec = remotes_[i].name + ":";
     B().set_remote_about(S("Consultando espacio…"));
-    std::thread([this, gen, spec] {
+    spawn([this, gen, spec] {
         auto a = rc_.about(spec);
         post([this, gen, a] {
             if (gen != about_gen_)
@@ -1264,7 +1431,7 @@ void Controller::select_remote(int i)
                 s += " · libre " + format_size(a->free);
             B().set_remote_about(S(s));
         });
-    }).detach();
+    });
 }
 
 void Controller::remote_new()
@@ -1367,7 +1534,7 @@ void Controller::create_remote()
     B().set_remote_busy(true);
     remote_handle_ = std::make_shared<ProcessHandle>();
     auto handle = remote_handle_;
-    std::thread([this, name, type, params, handle] {
+    spawn([this, name, type, params, handle] {
         OpResult r = rc_.create_remote(name, type, params, handle.get());
         if (!r.ok)
             rc_.delete_remote(name);
@@ -1384,7 +1551,7 @@ void Controller::create_remote()
             add_log("info", "Remoto creado: " + name);
             load_remotes_async();
         });
-    }).detach();
+    });
 }
 
 void Controller::cancel_create_remote()
@@ -1405,7 +1572,7 @@ void Controller::delete_remote()
     confirm("Eliminar remoto",
             "Se eliminará la configuración de «" + name + "».\nLos archivos en la nube no se tocan.", "Eliminar", true,
             [this, name] {
-                std::thread([this, name] {
+                spawn([this, name] {
                     OpResult r = rc_.delete_remote(name);
                     post([this, r, name] {
                         if (!r.ok)
@@ -1416,7 +1583,7 @@ void Controller::delete_remote()
                         B().set_remote_about(S(""));
                         load_remotes_async();
                     });
-                }).detach();
+                });
             });
 }
 
@@ -1427,7 +1594,7 @@ void Controller::reconnect_remote()
         return;
     std::string name = remotes_[i].name;
     toast("Se abrirá el navegador para renovar el acceso a «" + name + "»…");
-    std::thread([this, name] {
+    spawn([this, name] {
         OpResult r = rc_.reconnect_remote(name);
         post([this, r, name] {
             if (r.ok)
@@ -1435,7 +1602,7 @@ void Controller::reconnect_remote()
             else
                 toast(r.message, true);
         });
-    }).detach();
+    });
 }
 
 // ------------------------------------------------------------------ jobs
@@ -1811,7 +1978,7 @@ void Controller::start_mount(const std::string &id)
 
     auto handle = rt.handle;
     MountDef def = *m;
-    std::thread([this, id, def, handle] {
+    spawn([this, id, def, handle] {
         std::string last_err;
         auto on_log = [&](const std::string &line) {
             if (line.find("ERROR") != std::string::npos || line.find("CRITICAL") != std::string::npos)
@@ -1833,7 +2000,7 @@ void Controller::start_mount(const std::string &id)
                 toast("Montaje fallido: " + msg, true);
             }
         });
-    }).detach();
+    });
 }
 
 void Controller::stop_mount(const std::string &id)
@@ -1903,6 +2070,7 @@ void Controller::load_settings_into_ui()
     B().set_set_confirm_delete(s.confirm_delete);
     B().set_set_notify_done(s.notify_done);
     B().set_set_minimize_tray(s.minimize_to_tray);
+    B().set_set_auto_update(s.auto_update);
     ui_->global<Theme>().set_dark(s.dark_theme);
 }
 
@@ -1917,6 +2085,7 @@ void Controller::apply_settings()
     s.confirm_delete = B().get_set_confirm_delete();
     s.notify_done = B().get_set_notify_done();
     s.minimize_to_tray = B().get_set_minimize_tray();
+    s.auto_update = B().get_set_auto_update();
     store_.save();
     load_settings_into_ui();
     bool had = rc_.available();
@@ -2242,6 +2411,7 @@ void Controller::bind_callbacks()
             B().set_set_rclone_path(S(p));
     });
     b.on_open_data_folder([] { plat::open_path(Store::data_dir()); });
+    b.on_check_updates([this] { check_updates(true); });
     b.on_open_rclone_site([] { plat::open_url("https://rclone.org"); });
 }
 
@@ -2249,6 +2419,7 @@ void Controller::start()
 {
     store_.load();
     const Backend &b = B();
+    b.set_app_version(S(APP_VERSION));
 
     b.set_remote_names(remote_names_model_);
     b.set_left_files(pane_[0].model);
@@ -2260,6 +2431,7 @@ void Controller::start()
     b.set_mounts(mount_rows_);
     b.set_history(history_rows_);
     b.set_active_transfers(active_model_);
+    b.set_speed_history(speed_model_);
     b.set_done_transfers(done_model_);
     b.set_logs(log_model_);
     b.set_compare_rows(cmp_model_);
@@ -2287,6 +2459,9 @@ void Controller::start()
 
     poll_timer_.start(slint::TimerMode::Repeated, std::chrono::seconds(1), [this] {
         ++tick_;
+        sample_speed();
+        if (tick_ == 6 && store_.settings.auto_update)
+            check_updates(false);
         poll_mounts();
         if (tick_ % 30 == 5)
             check_schedules();

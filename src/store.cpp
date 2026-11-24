@@ -1,4 +1,4 @@
-﻿#include "store.h"
+#include "store.h"
 
 #include <windows.h>
 
@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include <nlohmann/json.hpp>
+#include "jsonutil.h"
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -39,16 +40,16 @@ TransferOptions options_from_json(const json &j)
     TransferOptions o;
     if (!j.is_object())
         return o;
-    o.mode = j.value("mode", o.mode);
-    o.transfers = j.value("transfers", o.transfers);
-    o.checkers = j.value("checkers", o.checkers);
-    o.dry_run = j.value("dry_run", o.dry_run);
-    o.checksum = j.value("checksum", o.checksum);
-    o.size_only = j.value("size_only", o.size_only);
-    o.ignore_existing = j.value("ignore_existing", o.ignore_existing);
-    o.bwlimit = j.value("bwlimit", o.bwlimit);
-    o.filters = j.value("filters", o.filters);
-    o.extra_flags = j.value("extra_flags", o.extra_flags);
+    o.mode = jv(j, "mode", o.mode);
+    o.transfers = jv(j, "transfers", o.transfers);
+    o.checkers = jv(j, "checkers", o.checkers);
+    o.dry_run = jv(j, "dry_run", o.dry_run);
+    o.checksum = jv(j, "checksum", o.checksum);
+    o.size_only = jv(j, "size_only", o.size_only);
+    o.ignore_existing = jv(j, "ignore_existing", o.ignore_existing);
+    o.bwlimit = jv(j, "bwlimit", o.bwlimit);
+    o.filters = jv(j, "filters", o.filters);
+    o.extra_flags = jv(j, "extra_flags", o.extra_flags);
     return o;
 }
 
@@ -73,27 +74,27 @@ json job_to_json(const Job &j)
 Job job_from_json(const json &j)
 {
     Job job;
-    job.id = j.value("id", "");
+    job.id = jv(j, "id", "");
     if (job.id.empty())
         job.id = new_id();
-    job.name = j.value("name", "Trabajo");
-    job.source = j.value("source", "");
+    job.name = jv(j, "name", "Trabajo");
+    job.source = jv(j, "source", "");
     if (j.contains("destinations") && j["destinations"].is_array())
         for (const auto &d : j["destinations"])
             if (d.is_string())
                 job.destinations.push_back(d.get<std::string>());
-    job.options = options_from_json(j.value("options", json::object()));
+    job.options = options_from_json(jv(j, "options", json::object()));
     if (j.contains("schedule") && j["schedule"].is_object()) {
         const auto &s = j["schedule"];
-        job.schedule.enabled = s.value("enabled", false);
-        job.schedule.kind = s.value("kind", "interval");
-        job.schedule.interval_minutes = s.value("interval_minutes", 60);
-        job.schedule.daily_time = s.value("daily_time", "02:00");
-        job.schedule.last_run = s.value("last_run", static_cast<int64_t>(0));
+        job.schedule.enabled = jv(s, "enabled", false);
+        job.schedule.kind = jv(s, "kind", "interval");
+        job.schedule.interval_minutes = jv(s, "interval_minutes", 60);
+        job.schedule.daily_time = jv(s, "daily_time", "02:00");
+        job.schedule.last_run = jv(s, "last_run", static_cast<int64_t>(0));
     }
-    job.created = j.value("created", static_cast<int64_t>(0));
-    job.last_run = j.value("last_run", static_cast<int64_t>(0));
-    job.last_status = j.value("last_status", "");
+    job.created = jv(j, "created", static_cast<int64_t>(0));
+    job.last_run = jv(j, "last_run", static_cast<int64_t>(0));
+    job.last_status = jv(j, "last_status", "");
     return job;
 }
 
@@ -190,15 +191,16 @@ void Store::load()
     if (read_file(dir / L"settings.json", text)) {
         auto j = json::parse(text, nullptr, false);
         if (j.is_object()) {
-            settings.rclone_path = j.value("rclone_path", "");
-            settings.dark_theme = j.value("dark_theme", true);
-            settings.transfers = j.value("transfers", 4);
-            settings.checkers = j.value("checkers", 8);
-            settings.confirm_delete = j.value("confirm_delete", true);
-            settings.notify_done = j.value("notify_done", true);
-            settings.minimize_to_tray = j.value("minimize_to_tray", false);
-            settings.bwlimit = j.value("bwlimit", "");
-            settings.extra_flags = j.value("extra_flags", "");
+            settings.rclone_path = jv(j, "rclone_path", "");
+            settings.dark_theme = jv(j, "dark_theme", true);
+            settings.transfers = jv(j, "transfers", 4);
+            settings.checkers = jv(j, "checkers", 8);
+            settings.confirm_delete = jv(j, "confirm_delete", true);
+            settings.notify_done = jv(j, "notify_done", true);
+            settings.minimize_to_tray = jv(j, "minimize_to_tray", false);
+            settings.auto_update = jv(j, "auto_update", true);
+            settings.bwlimit = jv(j, "bwlimit", "");
+            settings.extra_flags = jv(j, "extra_flags", "");
         }
     }
 
@@ -217,17 +219,17 @@ void Store::load()
         if (j.is_array()) {
             for (const auto &e : j) {
                 HistoryEntry h;
-                h.time = e.value("time", static_cast<int64_t>(0));
-                h.job = e.value("job", "");
-                h.mode = e.value("mode", "");
-                h.source = e.value("source", "");
-                h.destination = e.value("destination", "");
-                h.status = e.value("status", "");
-                h.trigger = e.value("trigger", "manual");
-                h.bytes = e.value("bytes", static_cast<int64_t>(0));
-                h.files = e.value("files", static_cast<int64_t>(0));
-                h.seconds = e.value("seconds", 0.0);
-                h.error = e.value("error", "");
+                h.time = jv(e, "time", static_cast<int64_t>(0));
+                h.job = jv(e, "job", "");
+                h.mode = jv(e, "mode", "");
+                h.source = jv(e, "source", "");
+                h.destination = jv(e, "destination", "");
+                h.status = jv(e, "status", "");
+                h.trigger = jv(e, "trigger", "manual");
+                h.bytes = jv(e, "bytes", static_cast<int64_t>(0));
+                h.files = jv(e, "files", static_cast<int64_t>(0));
+                h.seconds = jv(e, "seconds", 0.0);
+                h.error = jv(e, "error", "");
                 history.push_back(std::move(h));
             }
         }
@@ -239,13 +241,13 @@ void Store::load()
         if (j.is_array()) {
             for (const auto &e : j) {
                 MountDef m;
-                m.id = e.value("id", new_id());
-                m.name = e.value("name", "");
-                m.spec = e.value("spec", "");
-                m.mountpoint = e.value("mountpoint", "");
-                m.cache_mode = e.value("cache_mode", "full");
-                m.read_only = e.value("read_only", false);
-                m.auto_mount = e.value("auto_mount", false);
+                m.id = jv(e, "id", new_id());
+                m.name = jv(e, "name", "");
+                m.spec = jv(e, "spec", "");
+                m.mountpoint = jv(e, "mountpoint", "");
+                m.cache_mode = jv(e, "cache_mode", "full");
+                m.read_only = jv(e, "read_only", false);
+                m.auto_mount = jv(e, "auto_mount", false);
                 mounts.push_back(std::move(m));
             }
         }
@@ -263,14 +265,15 @@ void Store::save() const
                { "confirm_delete", settings.confirm_delete },
                { "notify_done", settings.notify_done },
                { "minimize_to_tray", settings.minimize_to_tray },
+               { "auto_update", settings.auto_update },
                { "bwlimit", settings.bwlimit },
                { "extra_flags", settings.extra_flags } };
-    write_file_atomic(dir / L"settings.json", s.dump(2));
+    write_file_atomic(dir / L"settings.json", s.dump(2, ' ', false, json::error_handler_t::replace));
 
     json jobs_j = json::array();
     for (const auto &j : jobs)
         jobs_j.push_back(job_to_json(j));
-    write_file_atomic(dir / L"jobs.json", jobs_j.dump(2));
+    write_file_atomic(dir / L"jobs.json", jobs_j.dump(2, ' ', false, json::error_handler_t::replace));
 
     json hist = json::array();
     for (const auto &h : history)
@@ -285,7 +288,7 @@ void Store::save() const
                          { "files", h.files },
                          { "seconds", h.seconds },
                          { "error", h.error } });
-    write_file_atomic(dir / L"history.json", hist.dump(1));
+    write_file_atomic(dir / L"history.json", hist.dump(1, ' ', false, json::error_handler_t::replace));
 
     json mj = json::array();
     for (const auto &m : mounts)
@@ -296,7 +299,7 @@ void Store::save() const
                        { "cache_mode", m.cache_mode },
                        { "read_only", m.read_only },
                        { "auto_mount", m.auto_mount } });
-    write_file_atomic(dir / L"mounts.json", mj.dump(2));
+    write_file_atomic(dir / L"mounts.json", mj.dump(2, ' ', false, json::error_handler_t::replace));
 }
 
 Job *Store::find_job(const std::string &id)
@@ -327,7 +330,7 @@ std::string Store::export_jobs_json() const
     json arr = json::array();
     for (const auto &j : jobs)
         arr.push_back(job_to_json(j));
-    return arr.dump(2);
+    return arr.dump(2, ' ', false, json::error_handler_t::replace);
 }
 
 int Store::import_jobs_json(const std::string &text)

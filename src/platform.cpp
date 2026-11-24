@@ -1,4 +1,4 @@
-﻿#include "platform.h"
+#include "platform.h"
 
 #include <windows.h>
 
@@ -6,8 +6,11 @@
 #include <shellapi.h>
 #include <shobjidl.h>
 
+#include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 #include "proc.h"
@@ -126,6 +129,18 @@ bool set_clipboard(const std::string &utf8)
     return true;
 }
 
+std::string temp_dir()
+{
+    wchar_t buf[MAX_PATH];
+    DWORD n = GetTempPathW(MAX_PATH, buf);
+    if (n == 0 || n >= MAX_PATH)
+        return ".";
+    std::wstring s(buf, n);
+    while (!s.empty() && (s.back() == L'\\' || s.back() == L'/'))
+        s.pop_back();
+    return wide_to_utf8(s);
+}
+
 bool winfsp_installed()
 {
     wchar_t pf[MAX_PATH];
@@ -182,13 +197,85 @@ std::string user_profile()
     return {};
 }
 
+namespace {
+
+std::mutex g_log_mutex;
+
+std::filesystem::path log_path()
+{
+    wchar_t buf[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", buf, MAX_PATH);
+    std::filesystem::path dir = n && n < MAX_PATH ? std::filesystem::path(buf) / L"RcloneLite"
+                                                  : std::filesystem::temp_directory_path() / L"RcloneLite";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir / L"errors.log";
+}
+
+void write_log_line(const std::string &message)
+{
+    std::lock_guard lock(g_log_mutex);
+    auto path = log_path();
+    std::error_code ec;
+    if (std::filesystem::file_size(path, ec) > 512 * 1024)
+        std::filesystem::remove(path, ec);
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char stamp[48];
+    std::snprintf(stamp, sizeof(stamp), "%04d-%02d-%02d %02d:%02d:%02d  ", st.wYear, st.wMonth, st.wDay,
+                  st.wHour, st.wMinute, st.wSecond);
+    std::ofstream f(path, std::ios::binary | std::ios::app);
+    if (f)
+        f << stamp << message << "\r\n";
+}
+
+LONG WINAPI unhandled_filter(EXCEPTION_POINTERS *ep)
+{
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "FALLO FATAL: excepción 0x%08lX en la dirección %p",
+                  ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionCode : 0UL,
+                  ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionAddress : nullptr);
+    write_log_line(buf);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+} // namespace
+
+void log_error(const std::string &message)
+{
+    try {
+        write_log_line(message);
+    } catch (...) {
+    }
+}
+
+void install_crash_handlers()
+{
+    SetUnhandledExceptionFilter(unhandled_filter);
+    std::set_terminate([] {
+        std::string what = "terminate() sin excepción activa";
+        if (auto ep = std::current_exception()) {
+            try {
+                std::rethrow_exception(ep);
+            } catch (const std::exception &e) {
+                what = std::string("excepción no capturada: ") + e.what();
+            } catch (...) {
+                what = "excepción no capturada de tipo desconocido";
+            }
+        }
+        write_log_line("FALLO FATAL: " + what);
+        std::abort();
+    });
+}
+
 void kill_children_on_exit()
 {
     HANDLE job = CreateJobObjectW(nullptr, nullptr);
     if (!job)
         return;
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION info {};
-    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    // BREAKAWAY_OK lets the updater start the installer outside the job so it survives our exit.
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
     SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info, sizeof(info));
     AssignProcessToJobObject(job, GetCurrentProcess());
 }

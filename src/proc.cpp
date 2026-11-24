@@ -78,6 +78,13 @@ void pump(HANDLE pipe, const LineCallback &cb, std::string &collected)
     std::string buf;
     char chunk[8192];
     DWORD got = 0;
+    // A throwing callback would escape the reader thread and terminate the process.
+    auto emit = [&](const std::string &line) {
+        try {
+            cb(line);
+        } catch (...) {
+        }
+    };
     auto flush_lines = [&](bool final) {
         size_t pos;
         while ((pos = buf.find('\n')) != std::string::npos) {
@@ -86,11 +93,11 @@ void pump(HANDLE pipe, const LineCallback &cb, std::string &collected)
                 line.pop_back();
             buf.erase(0, pos + 1);
             if (cb)
-                cb(line);
+                emit(line);
         }
         if (final && !buf.empty()) {
             if (cb)
-                cb(buf);
+                emit(buf);
             buf.clear();
         }
     };
