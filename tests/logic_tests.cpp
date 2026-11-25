@@ -98,6 +98,10 @@ int main()
     interval.last_run = 1000;
     require(!schedule_is_due(interval, 1899) && schedule_is_due(interval, 1900),
             "interval schedules become due at their exact minute boundary");
+    require(schedule_next_due(interval, 1800) == 1900, "next interval uses the last scheduled run");
+    require(schedule_next_due(interval, 2000) == 1900, "overdue interval retains its missed due time");
+    interval.enabled = false;
+    require(schedule_next_due(interval, 1800) == 0, "disabled schedules have no next due time");
     Schedule daily;
     daily.enabled = true;
     daily.kind = "daily";

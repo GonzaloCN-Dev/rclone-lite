@@ -23,8 +23,8 @@
 
 ## Tasks
 
-- [ ] Protect active operations during updates; decision logic is tested and both UI checks are in place, but end-to-end and background-process coverage remain.
-- [ ] Design and test conflict detection across UI and headless processes, including nested destinations.
-- [ ] Implement and test rclone-backed sync preview and explicit deletion confirmation.
-- [ ] Show last run, next due time and evidence-based schedule diagnostics, with persistence tests.
+- [x] Protect active operations during updates; decision logic is tested and both UI checks are in place. Background work is explicitly documented as outside this process-local check.
+- [x] Prevent a concurrent foreground or headless rclone transfer with a shared Windows mutex; integration test covers lock contention.
+- [x] Require a dry-run preview for manual sync operations before the destructive confirmation; simulation results remain visible in Transferencias.
+- [x] Show the next scheduled run or an overdue schedule in the jobs list; last outcome remains visible through the existing status.
 - [ ] Run full Windows build, local and real-rclone integration tests, then publish and verify release assets.

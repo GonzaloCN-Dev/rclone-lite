@@ -11,6 +11,7 @@ namespace rl {
 
 std::string current_executable_path();
 bool schedule_is_due(const Schedule &schedule, int64_t now);
+int64_t schedule_next_due(const Schedule &schedule, int64_t now);
 std::vector<std::string> background_task_arguments(const std::string &exe,
                                                    const std::string &task_name = "Rclone Lite Background Scheduled Jobs");
 OpResult configure_background_task(const std::string &exe, bool enabled,

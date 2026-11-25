@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -64,6 +65,20 @@ int main()
     const std::string source = (root / L"source").string();
     const std::string copied = (root / L"copied").string();
     const std::string moved = (root / L"moved").string();
+
+    HANDLE held_transfer = CreateMutexW(nullptr, TRUE, L"Local\\RcloneLiteTransferInProgress");
+    require(held_transfer != nullptr, "test can hold the global transfer lock");
+    rl::OpResult blocked;
+    std::thread blocked_thread([&] {
+        rl::TransferOptions blocked_options;
+        rl::ProcessHandle blocked_handle;
+        blocked = rclone.transfer(source, copied, blocked_options, {}, {}, &blocked_handle);
+    });
+    blocked_thread.join();
+    require(!blocked.ok && blocked.message.find("transferencia de Rclone Lite") != std::string::npos,
+            "second transfer is rejected while another Rclone Lite transfer owns the lock");
+    ReleaseMutex(held_transfer);
+    CloseHandle(held_transfer);
 
     rl::TransferOptions copy_options;
     rl::ProcessHandle copy_handle;

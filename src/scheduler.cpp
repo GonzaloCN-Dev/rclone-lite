@@ -156,6 +156,35 @@ bool schedule_is_due(const Schedule &schedule, int64_t now)
     return now >= due_at && schedule.last_run < due_at;
 }
 
+int64_t schedule_next_due(const Schedule &schedule, int64_t now)
+{
+    if (!schedule.enabled || now <= 0)
+        return 0;
+    if (schedule.kind != "daily")
+        return schedule.last_run + static_cast<int64_t>(std::max(1, schedule.interval_minutes)) * 60;
+
+    int hour = 0, minute = 0;
+    char trailing = '\0';
+    if (std::sscanf(schedule.daily_time.c_str(), "%d:%d%c", &hour, &minute, &trailing) != 2 ||
+        hour < 0 || hour > 23 || minute < 0 || minute > 59)
+        return 0;
+    const std::time_t current = static_cast<std::time_t>(now);
+    std::tm local {};
+    if (localtime_s(&local, &current) != 0)
+        return 0;
+    local.tm_hour = hour;
+    local.tm_min = minute;
+    local.tm_sec = 0;
+    local.tm_isdst = -1;
+    int64_t due = static_cast<int64_t>(std::mktime(&local));
+    if (schedule.last_run >= due) {
+        ++local.tm_mday;
+        local.tm_isdst = -1;
+        due = static_cast<int64_t>(std::mktime(&local));
+    }
+    return due > 0 ? due : 0;
+}
+
 std::vector<std::string> background_task_arguments(const std::string &exe, const std::string &task_name)
 {
     return { "/Create", "/TN", task_name, "/SC", "MINUTE", "/MO", "1",

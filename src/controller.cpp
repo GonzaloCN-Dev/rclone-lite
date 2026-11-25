@@ -309,7 +309,9 @@ private:
     void refresh_jobs();
     void open_job_form(const Job *job, bool from_panes);
     bool save_job_from_form(std::string &id_out);
-    void run_job(const std::string &id, bool dry, const std::string &trigger);
+    void run_job(const std::string &id, bool dry, const std::string &trigger,
+                 std::function<void(bool)> after = {});
+    void preview_sync_then_confirm(const std::string &id);
     void check_schedules();
     void sync_background_scheduler();
     std::string schedule_text(const Schedule &s) const;
@@ -2027,9 +2029,13 @@ std::string Controller::schedule_text(const Schedule &s) const
 {
     if (!s.enabled)
         return "Manual";
-    if (s.kind == "daily")
-        return "Diario a las " + s.daily_time;
-    return "Cada " + std::to_string(s.interval_minutes) + " min";
+    const std::string cadence = s.kind == "daily" ? "Diario a las " + s.daily_time
+                                                   : "Cada " + std::to_string(s.interval_minutes) + " min";
+    const int64_t now = now_unix();
+    const int64_t next = schedule_next_due(s, now);
+    if (next <= 0)
+        return cadence;
+    return cadence + (next <= now ? " · Vencido desde: " : " · Próxima: ") + format_time(next);
 }
 
 void Controller::refresh_jobs()
@@ -2182,7 +2188,8 @@ bool Controller::save_job_from_form(std::string &id_out)
     return true;
 }
 
-void Controller::run_job(const std::string &id, bool dry, const std::string &trigger)
+void Controller::run_job(const std::string &id, bool dry, const std::string &trigger,
+                         std::function<void(bool)> after)
 {
     Job *j = store_.find_job(id);
     if (!j || running_jobs_.count(id))
@@ -2215,7 +2222,7 @@ void Controller::run_job(const std::string &id, bool dry, const std::string &tri
     j->schedule.last_run = now_unix();
     running_jobs_.insert(id);
     refresh_jobs();
-    start_task(t, std::move(steps), [this, id](bool ok, bool cancelled, const std::string &) {
+    start_task(t, std::move(steps), [this, id, after = std::move(after)](bool ok, bool cancelled, const std::string &) {
         running_jobs_.erase(id);
         if (Job *j = store_.find_job(id)) {
             j->last_status = ok ? "ok" : cancelled ? "" : "error";
@@ -2224,11 +2231,34 @@ void Controller::run_job(const std::string &id, bool dry, const std::string &tri
         refresh_jobs();
         refresh_pane(0);
         refresh_pane(1);
+        if (after)
+            after(ok && !cancelled);
     });
     if (std::find(tasks_.begin(), tasks_.end(), t) == tasks_.end()) {
         running_jobs_.erase(id);
         refresh_jobs();
     }
+}
+
+void Controller::preview_sync_then_confirm(const std::string &id)
+{
+    Job *job = store_.find_job(id);
+    if (!job || running_jobs_.count(id))
+        return;
+    toast("Preparando vista previa de la sincronización…");
+    run_job(id, true, "preview", [this, id](bool ok) {
+        if (!ok) {
+            toast("La vista previa no terminó correctamente. No se ha modificado ningún archivo.", true);
+            return;
+        }
+        Job *job = store_.find_job(id);
+        if (!job)
+            return;
+        confirm("Aplicar sincronización",
+                "La simulación se ha completado sin modificar archivos. Revisa sus resultados en Transferencias antes de continuar.\n\n"
+                "Al aplicar la sincronización, se eliminarán del destino los archivos que no existan en el origen.",
+                "Aplicar sincronización", true, [this, id] { run_job(id, false, "manual"); });
+    });
 }
 
 void Controller::check_schedules()
@@ -2752,10 +2782,7 @@ void Controller::bind_callbacks()
             return;
         }
         if (!dry && j.options.mode == "sync" && !j.options.dry_run) {
-            confirm("Sincronizar (espejo)",
-                    "El destino quedará idéntico al origen: se ELIMINARÁN en el destino los archivos que no existan en el origen.\n\n"
-                    "Consejo: usa «Simular» primero para ver los cambios sin aplicarlos.",
-                    "Sincronizar", true, [this, id] { run_job(id, false, "manual"); });
+            preview_sync_then_confirm(id);
             return;
         }
         run_job(id, dry, "manual");
@@ -2770,9 +2797,7 @@ void Controller::bind_callbacks()
             return;
         const Job *j = store_.find_job(id);
         if (j && j->options.mode == "sync" && !j->options.dry_run) {
-            confirm("Sincronizar (espejo)",
-                    "El destino quedará idéntico al origen: se ELIMINARÁN en el destino los archivos que no existan en el origen.",
-                    "Sincronizar", true, [this, id] { run_job(id, false, "manual"); });
+            preview_sync_then_confirm(id);
             return;
         }
         run_job(id, false, "manual");

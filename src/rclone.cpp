@@ -499,6 +499,22 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
 {
     if (args.size() >= 3 && (!valid_path_spec(args[1]) || !valid_path_spec(args[2])))
         return { false, "El origen o el destino no es una ruta válida." };
+    HANDLE transfer_mutex = CreateMutexW(nullptr, FALSE, L"Local\\RcloneLiteTransferInProgress");
+    if (!transfer_mutex)
+        return { false, "No se pudo preparar la protección contra transferencias simultáneas." };
+    const DWORD locked = WaitForSingleObject(transfer_mutex, 0);
+    if (locked != WAIT_OBJECT_0 && locked != WAIT_ABANDONED) {
+        CloseHandle(transfer_mutex);
+        return { false, "Ya hay una transferencia de Rclone Lite en curso. Espera a que termine antes de iniciar otra." };
+    }
+    struct TransferLock {
+        HANDLE handle;
+        ~TransferLock()
+        {
+            ReleaseMutex(handle);
+            CloseHandle(handle);
+        }
+    } lock { transfer_mutex };
     std::string filter_file;
     for (auto &f : rc.common_flags(opt, &filter_file))
         args.push_back(std::move(f));
