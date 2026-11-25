@@ -31,6 +31,8 @@ int main()
 
     require(should_warn_before_exit(1), "active transfers trigger an exit warning");
     require(!should_warn_before_exit(0), "no exit warning is shown without active transfers");
+    require(rl::should_defer_update(1), "updates wait for active transfers");
+    require(!rl::should_defer_update(0), "updates may proceed without active transfers");
 
     require(valid_path_spec("drive:photos"), "remote paths are valid");
     require(valid_path_spec("C:/Users/name"), "Windows paths are valid");

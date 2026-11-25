@@ -1173,8 +1173,8 @@ void Controller::on_update_result(const updater::Release &r, bool manual)
     if (r.size > 0)
         text += "\nDescarga: " + format_size(r.size) + ".";
     text += "\n\nSe descargará, se comprobará su integridad y se instalará. La aplicación se cerrará y volverá a abrirse sola.";
-    if (!tasks_.empty())
-        text += "\n\nAtención: hay transferencias en curso y se cancelarán.";
+    if (should_defer_update(tasks_.size()))
+        text += "\n\nHay transferencias en curso. Podrás actualizar cuando terminen.";
     confirm("Actualización disponible", text, "Actualizar ahora", false, [this, r] { start_update(r); });
 }
 
@@ -1182,6 +1182,11 @@ void Controller::start_update(const updater::Release &r)
 {
     if (update_busy_)
         return;
+    if (should_defer_update(tasks_.size())) {
+        B().set_update_status(S("Actualización pendiente: espera a que terminen las transferencias y vuelve a intentarlo."));
+        toast("Espera a que terminen las transferencias antes de actualizar.");
+        return;
+    }
     update_busy_ = true;
     B().set_update_busy(true);
     B().set_update_status(S("Descargando la versión " + r.version + "…"));
@@ -1216,6 +1221,11 @@ void Controller::start_update(const updater::Release &r)
                 B().set_update_status(S("Error al actualizar: " + err));
                 toast("No se pudo actualizar: " + err, true);
                 add_log("error", "Actualización: " + err);
+                return;
+            }
+            if (should_defer_update(tasks_.size())) {
+                B().set_update_status(S("Actualización pendiente: hay transferencias en curso. Vuelve a intentarlo cuando terminen."));
+                toast("No se instalará la actualización mientras haya transferencias en curso.");
                 return;
             }
             B().set_update_status(S("Instalando la versión " + r.version + "…"));
