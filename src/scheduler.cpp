@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -53,7 +54,36 @@ std::string task_action(const std::string &exe)
     return wide_to_utf8(quote_task_argument(utf8_to_wide(exe))) + " --run-due-jobs";
 }
 
-int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now)
+fs::path failures_path()
+{
+    return fs::path(utf8_to_wide(Store::data_dir())) / L"background_failures.json";
+}
+
+fs::path retry_path()
+{
+    return fs::path(utf8_to_wide(Store::data_dir())) / L"pending_retry.txt";
+}
+
+bool write_file_atomic(const fs::path &path, const std::string &text)
+{
+    fs::path tmp = path;
+    tmp += L".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        f << text;
+        if (!f)
+            return false;
+    }
+    std::error_code ec;
+    fs::rename(tmp, path, ec);
+    if (ec) {
+        fs::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
+int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now, std::vector<BackgroundFailure> *failed)
 {
     int failures = 0;
     BackgroundRun run;
@@ -128,8 +158,13 @@ int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now)
             plat::log_error("No se pudo guardar el resultado del trabajo programado «" + job.name + "»: " +
                             store.save_error);
         }
-        if (!errors.empty())
+        if (!errors.empty()) {
             plat::log_error("Falló el trabajo programado «" + job.name + "»: " + errors);
+            if (failed)
+                failed->push_back({ job.id, job.name, errors.size() > 400 ? errors.substr(0, 400) : errors, now_unix() });
+        } else {
+            clear_background_failure(job.id);
+        }
     }
     if (run.jobs > 0) {
         run.time = now_unix();
@@ -160,6 +195,103 @@ bool update_marker_active(int64_t now, int64_t max_age_seconds)
     long long stamp = 0;
     f >> stamp;
     return stamp > 0 && now - stamp >= 0 && now - stamp < max_age_seconds;
+}
+
+std::vector<BackgroundFailure> load_background_failures()
+{
+    std::vector<BackgroundFailure> out;
+    std::ifstream f(failures_path(), std::ios::binary);
+    if (!f)
+        return out;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    auto j = nlohmann::json::parse(ss.str(), nullptr, false);
+    if (!j.is_array())
+        return out;
+    for (const auto &e : j) {
+        if (!e.is_object())
+            continue;
+        BackgroundFailure b;
+        b.job_id = jv(e, "job_id", "");
+        b.name = jv(e, "name", "");
+        b.error = jv(e, "error", "");
+        b.time = jv(e, "time", static_cast<int64_t>(0));
+        if (!b.job_id.empty())
+            out.push_back(std::move(b));
+    }
+    return out;
+}
+
+void save_background_failures(const std::vector<BackgroundFailure> &failures)
+{
+    if (failures.empty()) {
+        clear_background_failures();
+        return;
+    }
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto &b : failures)
+        arr.push_back({ { "job_id", b.job_id }, { "name", b.name }, { "error", b.error }, { "time", b.time } });
+    write_file_atomic(failures_path(), arr.dump(2, ' ', false, nlohmann::json::error_handler_t::replace));
+}
+
+void clear_background_failures()
+{
+    std::error_code ec;
+    fs::remove(failures_path(), ec);
+}
+
+void clear_background_failure(const std::string &job_id)
+{
+    auto all = load_background_failures();
+    const auto before = all.size();
+    std::erase_if(all, [&](const BackgroundFailure &b) { return b.job_id == job_id; });
+    if (all.size() != before)
+        save_background_failures(all);
+}
+
+bool parse_retry_uri(const std::string &uri, std::string &job_id)
+{
+    const std::string head = "rclonelite://retry/";
+    if (uri.rfind(head, 0) != 0)
+        return false;
+    std::string id = uri.substr(head.size());
+    while (!id.empty() && (id.back() == '/' || id.back() == '\\'))
+        id.pop_back();
+    if (id.empty() || id.size() > 64)
+        return false;
+    for (char c : id)
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_')
+            return false;
+    job_id = id;
+    return true;
+}
+
+void queue_retry_request(const std::string &job_id)
+{
+    std::ofstream f(retry_path(), std::ios::binary | std::ios::app);
+    f << job_id << "\n";
+}
+
+std::vector<std::string> take_retry_requests()
+{
+    std::vector<std::string> ids;
+    std::error_code ec;
+    if (!fs::exists(retry_path(), ec))
+        return ids;
+    const fs::path taken = retry_path().replace_extension(L".taken");
+    fs::rename(retry_path(), taken, ec);
+    if (ec)
+        return ids;
+    std::ifstream f(taken, std::ios::binary);
+    for (std::string line; std::getline(f, line);) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+            line.pop_back();
+        if (!line.empty() && std::find(ids.begin(), ids.end(), line) == ids.end())
+            ids.push_back(line);
+    }
+    f.close();
+    fs::remove(taken, ec);
+    return ids;
 }
 
 void save_background_run(const BackgroundRun &run)
@@ -317,7 +449,7 @@ OpResult configure_background_task(const std::string &exe, bool enabled, const s
     return { true, "" };
 }
 
-int run_due_jobs(Store &store, Rclone &rclone, int64_t now)
+int run_due_jobs(Store &store, Rclone &rclone, int64_t now, std::vector<BackgroundFailure> *failed)
 {
     HANDLE mutex = CreateMutexW(nullptr, FALSE, L"Local\\RcloneLiteBackgroundScheduledJobs");
     if (!mutex)
@@ -327,7 +459,7 @@ int run_due_jobs(Store &store, Rclone &rclone, int64_t now)
         CloseHandle(mutex);
         return wait == WAIT_TIMEOUT ? 0 : 1;
     }
-    const int failures = run_due_jobs_unlocked(store, rclone, now);
+    const int failures = run_due_jobs_unlocked(store, rclone, now, failed);
     ReleaseMutex(mutex);
     CloseHandle(mutex);
     return failures;
@@ -357,7 +489,29 @@ int run_scheduled_jobs_headless()
     }
     rclone.set_auto_tune(store.settings.auto_tune);
     rclone.set_remote_types(rclone.list_remotes());
-    return run_due_jobs(store, rclone, now_unix()) == 0 ? 0 : 1;
+    std::vector<BackgroundFailure> failed;
+    const int result = run_due_jobs(store, rclone, now_unix(), &failed);
+    if (!failed.empty()) {
+        auto all = load_background_failures();
+        for (const auto &b : failed) {
+            std::erase_if(all, [&](const BackgroundFailure &o) { return o.job_id == b.job_id; });
+            all.push_back(b);
+        }
+        if (all.size() > 20)
+            all.erase(all.begin(), all.end() - 20);
+        save_background_failures(all);
+        if (store.settings.notify_failures) {
+            plat::register_retry_protocol(current_executable_path());
+            const size_t shown = std::min<size_t>(failed.size(), 3);
+            for (size_t i = 0; i < shown; ++i)
+                plat::toast_failure("Falló «" + failed[i].name + "»", friendly_error(failed[i].error),
+                                    "rclonelite://retry/" + failed[i].job_id);
+            if (failed.size() > shown)
+                plat::toast_failure("Fallaron " + std::to_string(failed.size() - shown) + " trabajos más",
+                                    "Abre Rclone Lite para revisarlos.", "");
+        }
+    }
+    return result == 0 ? 0 : 1;
 }
 
 } // namespace rl

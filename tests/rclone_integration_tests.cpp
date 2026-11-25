@@ -187,6 +187,94 @@ int main()
     require(store.jobs.back().last_status == "error" && store.history.front().status == "error",
             "1:N failure is reflected in scheduled job status and history");
 
+    // Two-way sync: baseline, preview, propagation and conflicts.
+    const fs::path bi_a = root / L"bi-a", bi_b = root / L"bi-b";
+    fs::create_directories(bi_a, ec);
+    fs::create_directories(bi_b, ec);
+    write_text(bi_a / L"same.txt", "same");
+    write_text(bi_b / L"same.txt", "same");
+    write_text(bi_a / L"only-a.txt", "a");
+    write_text(bi_b / L"only-b.txt", "b");
+    rl::TransferOptions bi;
+    bi.mode = "bisync";
+    rl::ProcessHandle bi_handle;
+    auto no_baseline = rclone.transfer(bi_a.string(), bi_b.string(), bi, {}, {}, &bi_handle);
+    require(!no_baseline.ok && no_baseline.message.find("primera sincronización") != std::string::npos,
+            "bisync refuses to build its baseline unless it is allowed");
+    require(!fs::exists(bi_b / L"only-a.txt"), "refused bisync changed nothing");
+    rl::PlanCollector first;
+    rl::TransferOptions first_dry = bi;
+    first_dry.dry_run = true;
+    first_dry.plan = &first;
+    require(rclone.transfer(bi_a.string(), bi_b.string(), first_dry, {}, {}, &bi_handle).ok, "bisync first dry run");
+    require(first.two_way && first.first_sync && first.copies == 2 && first.deletes == 0,
+            "first bisync preview lists copies to both sides and no deletes");
+    require(!fs::exists(bi_b / L"only-a.txt"), "bisync dry run changed nothing");
+    rl::TransferOptions allowed = bi;
+    allowed.allow_resync = true;
+    require(rclone.transfer(bi_a.string(), bi_b.string(), allowed, {}, {}, &bi_handle).ok, "bisync baseline run");
+    require(fs::exists(bi_b / L"only-a.txt") && fs::exists(bi_a / L"only-b.txt"), "bisync copies missing files both ways");
+
+    fs::remove(bi_a / L"same.txt");
+    write_text(bi_a / L"new-a.txt", "new a");
+    write_text(bi_a / L"both.txt", "from a");
+    write_text(bi_b / L"both.txt", "from b, longer");
+    rl::PlanCollector second;
+    rl::TransferOptions second_dry = bi;
+    second_dry.dry_run = true;
+    second_dry.plan = &second;
+    require(rclone.transfer(bi_a.string(), bi_b.string(), second_dry, {}, {}, &bi_handle).ok, "bisync second dry run");
+    bool deletes_same = false;
+    for (const auto &item : second.items)
+        deletes_same = deletes_same || (item.action == "delete" && item.path == "same.txt");
+    require(!second.first_sync && deletes_same, "bisync preview lists the propagated delete");
+    require(fs::exists(bi_b / L"same.txt"), "bisync dry run keeps the file it would delete");
+    require(rclone.transfer(bi_a.string(), bi_b.string(), bi, {}, {}, &bi_handle).ok, "bisync incremental run");
+    require(!fs::exists(bi_b / L"same.txt") && fs::exists(bi_b / L"new-a.txt"), "bisync propagates deletes and new files");
+
+    const std::string queued_text = "\x1b[33m- Path1    Queue copy to Path2                      - C:\\x\\b\\a.txt\x1b[0m";
+    rl::BisyncQueued q;
+    require(rl::parse_bisync_queued(queued_text, q) && q.copy && q.side == 2 && q.path == "C:\\x\\b\\a.txt",
+            "bisync queue line is parsed without colour codes");
+    require(rl::parse_bisync_queued("- Path2    Queue delete   - b/x.txt", q) && !q.copy && q.side == 2,
+            "bisync delete line is parsed");
+
+    // Integrity check before deleting a source.
+    const fs::path ck_a = root / L"ck-a", ck_b = root / L"ck-b";
+    fs::create_directories(ck_a, ec);
+    fs::create_directories(ck_b, ec);
+    write_text(ck_a / L"ok.txt", "ok");
+    write_text(ck_b / L"ok.txt", "ok");
+    write_text(ck_a / L"missing.txt", "x");
+    write_text(ck_a / L"diff.txt", "short");
+    write_text(ck_b / L"diff.txt", "different length");
+    write_text(ck_b / L"extra.txt", "extra");
+    rl::TransferOptions ck;
+    ck.one_way = true;
+    std::vector<rl::CompareItem> ck_items;
+    require(rclone.compare(ck_a.string(), ck_b.string(), ck, ck_items, nullptr).ok, "one-way check runs");
+    int missing = 0, differ = 0, extra = 0, same = 0;
+    for (const auto &i : ck_items) {
+        missing += i.status == '-' && i.path == "missing.txt";
+        differ += i.status == '*' && i.path == "diff.txt";
+        extra += i.status == '+';
+        same += i.status == '=';
+    }
+    require(missing == 1 && differ == 1 && extra == 0 && same == 1, "one-way check reports missing and different, ignores extras");
+
+    // Filter preview.
+    const fs::path fp = root / L"fp";
+    fs::create_directories(fp / L"node_modules" / L"x", ec);
+    fs::create_directories(fp / L"docs", ec);
+    write_text(fp / L"keep.txt", "k");
+    write_text(fp / L"node_modules" / L"x" / L"i.js", "i");
+    write_text(fp / L"Thumbs.db", "t");
+    write_text(fp / L"docs" / L"~$tmp.docx", "t");
+    write_text(fp / L"docs" / L"ok.docx", "o");
+    rl::FilterPreview preview;
+    require(rclone.filter_preview(fp.string(), "- node_modules/**\n- Thumbs.db\n- ~$*", preview, nullptr).ok,
+            "filter preview runs");
+    require(preview.kept == 2 && preview.excluded == 3, "filter preview counts kept and excluded files");
     fs::remove_all(root, ec);
     fs::remove_all(data, ec);
     std::cout << "Real-rclone integration tests passed.\n";

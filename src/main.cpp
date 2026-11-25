@@ -1,5 +1,6 @@
-﻿#include <cstdlib>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "platform.h"
 #include "scheduler.h"
@@ -11,7 +12,11 @@ int main(int argc, char **argv)
     bool hidden = false;
     bool run_due_jobs = false;
     for (int i = 1; i < argc; ++i)
-        if (std::strcmp(argv[i], "--minimized") == 0)
+        if (std::strncmp(argv[i], "rclonelite://", 13) == 0) {
+            std::string id;
+            if (rl::parse_retry_uri(argv[i], id))
+                rl::queue_retry_request(id);
+        } else if (std::strcmp(argv[i], "--minimized") == 0)
             hidden = true;
         else if (std::strcmp(argv[i], "--run-due-jobs") == 0)
             run_due_jobs = true;
@@ -22,7 +27,7 @@ int main(int argc, char **argv)
         return rl::run_scheduled_jobs_headless();
     }
     if (rl::plat::signal_existing_instance())
-        return 0;
+        return 0; // a running app picks up a queued retry request within a second
 
     // The OpenGL renderer shows a blank window on some drivers; software is reliable.
     if (!std::getenv("SLINT_BACKEND"))

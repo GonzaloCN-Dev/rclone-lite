@@ -67,6 +67,10 @@ struct PlanCollector {
     int64_t copies = 0, updates = 0, moves = 0, deletes = 0;
     int64_t bytes_transferred = 0, bytes_deleted = 0;
     bool truncated = false;
+    // bisync only: files changed on both sides, and whether this run builds the first baseline (--resync).
+    std::vector<std::string> conflicts;
+    bool first_sync = false;
+    bool two_way = false;
 
     void add(PlanItem item);
     void mark_updates(const std::vector<std::string> &paths);
@@ -75,7 +79,7 @@ struct PlanCollector {
 };
 
 struct TransferOptions {
-    std::string mode = "copy"; // copy | sync | move
+    std::string mode = "copy"; // copy | sync | move | bisync
     int transfers = 4;
     int checkers = 8;
     bool dry_run = false;
@@ -91,6 +95,33 @@ struct TransferOptions {
     PlanCollector *plan = nullptr;
     // Not persisted. How long to wait for another Rclone Lite transfer to finish (0 = fail at once).
     int lock_wait_seconds = 0;
+    // Not persisted. compare(): only report what is missing or different in the destination.
+    bool one_way = false;
+    // Not persisted. bisync: allow building the first baseline with --resync (always allowed for dry runs).
+    bool allow_resync = false;
+};
+
+// Removes terminal colour sequences (rclone bisync colours its notices).
+std::string strip_ansi(const std::string &text);
+
+struct BisyncQueued {
+    char side = 0;      // 1 = source ("Path1"), 2 = destination ("Path2"): where the action lands
+    bool copy = true;   // false = delete
+    std::string path;
+};
+// "- Path1 Queue copy to Path2 - <path>" / "- Path2 Queue delete - <path>".
+bool parse_bisync_queued(const std::string &msg, BisyncQueued &out);
+// "- WARNING  New or changed in both paths - <path>".
+bool parse_bisync_conflict(const std::string &msg, std::string &path);
+// "- Path1  File changed: size (larger), time (newer) - <path>".
+bool parse_bisync_changed(const std::string &msg, std::string &path);
+
+// Valid windows of a bandwidth timetable are validated by valid_bwlimit(); this is the file list preview.
+struct FilterPreview {
+    int64_t kept = 0;
+    int64_t excluded = 0;
+    std::vector<std::string> excluded_sample; // first files left out
+    bool truncated = false;
 };
 
 // Message returned when another Rclone Lite transfer owns the global transfer lock.
@@ -108,6 +139,9 @@ std::string parent_path(const std::string &path);
 
 // A source/destination that starts with '-' would be read by rclone as a flag.
 bool valid_path_spec(const std::string &spec);
+
+// "2M", "512k:off" or a timetable such as "08:00,2M 18:00,off" / "Mon-09:00,1M Sat-00:00,off".
+bool valid_bwlimit(const std::string &spec);
 bool valid_files_from_raw_name(const std::string &name);
 
 // Drops flags that can run programs, open servers or redirect logs (used for imported jobs).
@@ -163,12 +197,23 @@ public:
                       const std::function<void(const std::string &level, const std::string &msg)> &on_log,
                       ProcessHandle *handle) const;
 
+    // Two-way sync. First run (or changed filters) builds the baseline with --resync, but only when the
+    // options allow it (allow_resync or dry run); otherwise it fails with an explanatory message.
+    OpResult bisync(const std::string &src, const std::string &dst, const TransferOptions &opt,
+                    const std::function<void(const Stats &)> &on_stats,
+                    const std::function<void(const std::string &level, const std::string &msg)> &on_log,
+                    ProcessHandle *handle) const;
+
     // Same as transfer() but for a single file: copyto/moveto.
     OpResult transfer_file(const std::string &src, const std::string &dst, bool move,
                            const TransferOptions &opt,
                            const std::function<void(const Stats &)> &on_stats,
                            const std::function<void(const std::string &, const std::string &)> &on_log,
                            ProcessHandle *handle) const;
+
+    // Lists which files the filter rules leave out of `root` (recursive, files only).
+    OpResult filter_preview(const std::string &root, const std::string &filters, FilterPreview &out,
+                            ProcessHandle *handle) const;
 
     OpResult compare(const std::string &left, const std::string &right, const TransferOptions &opt,
                      std::vector<CompareItem> &out, ProcessHandle *handle) const;

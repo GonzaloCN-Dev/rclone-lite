@@ -17,6 +17,7 @@ struct Settings {
     int checkers = 8;
     bool confirm_delete = true;
     bool notify_done = true;
+    bool notify_failures = true; // Windows notification when a background job fails
     bool minimize_to_tray = false;
     bool auto_update = true;
     bool auto_tune = true;

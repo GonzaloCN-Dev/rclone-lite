@@ -278,7 +278,7 @@ export component JobsPage inherits Rectangle {
                                         alignment: start;
                                         Badge {
                                             text: j.mode;
-                                            tone: j.mode == "Sincronizar" ? Theme.warning : Theme.accent;
+                                            tone: j.mode == "Sincronizar" || j.mode == "Bidireccional" ? Theme.warning : Theme.accent;
                                         }
                                     }
                                 }
@@ -331,6 +331,12 @@ export component JobsPage inherits Rectangle {
                                 icon: "\u{E7B3}";
                                 enabled: Backend.job-selected >= 0 && Backend.rclone-ok;
                                 clicked => { Backend.job-run(true); }
+                            }
+                            Btn {
+                                text: "Comprobar";
+                                icon: "\u{E73E}";
+                                enabled: Backend.job-selected >= 0 && Backend.rclone-ok;
+                                clicked => { Backend.job-check(); }
                             }
                             Rectangle { horizontal-stretch: 1; }
                             Btn {
@@ -653,7 +659,7 @@ export component SettingsPage inherits Rectangle {
                             VerticalLayout {
                                 spacing: 5px;
                                 FieldLabel { text: "Límite de velocidad"; }
-                                TextField { value: Backend.set-bwlimit; placeholder: "Ej. 2M, 500K"; edited(t) => { Backend.set-bwlimit = t; } }
+                                TextField { value: Backend.set-bwlimit; placeholder: "2M  ·  09:00,2M 18:00,off"; edited(t) => { Backend.set-bwlimit = t; } }
                             }
                         }
                         FieldLabel { text: "Parámetros adicionales de rclone"; }
@@ -730,6 +736,11 @@ export component SettingsPage inherits Rectangle {
                             text: "Avisar con una notificación de Windows al terminar una operación";
                             checked: Backend.set-notify-done;
                             toggled(v) => { Backend.set-notify-done = v; }
+                        }
+                        Check {
+                            text: "Avisar cuando falle un trabajo programado que se ejecuta en segundo plano";
+                            checked: Backend.set-notify-failures;
+                            toggled(v) => { Backend.set-notify-failures = v; }
                         }
                         Check {
                             text: "Al cerrar la ventana, seguir en segundo plano (bandeja del sistema)";

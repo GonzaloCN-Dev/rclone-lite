@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <set>
 #include <sstream>
 
@@ -148,6 +149,111 @@ bool valid_path_spec(const std::string &spec)
     if (colon != std::string::npos && spec.find(',') < colon)
         return false;
     return true;
+}
+
+std::string strip_ansi(const std::string &text)
+{
+    std::string out;
+    out.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '\x1b' && i + 1 < text.size() && text[i + 1] == '[') {
+            i += 2;
+            while (i < text.size() && !((text[i] >= '@' && text[i] <= '~')))
+                ++i;
+            continue;
+        }
+        out.push_back(text[i]);
+    }
+    return out;
+}
+
+namespace {
+
+std::string squeeze_spaces(const std::string &s)
+{
+    std::string out;
+    bool space = false;
+    for (char c : s) {
+        if (c == ' ' || c == '\t') {
+            space = true;
+            continue;
+        }
+        if (space && !out.empty())
+            out.push_back(' ');
+        space = false;
+        out.push_back(c);
+    }
+    return out;
+}
+
+} // namespace
+
+bool parse_bisync_queued(const std::string &raw, BisyncQueued &out)
+{
+    const std::string msg = squeeze_spaces(strip_ansi(raw));
+    const bool p1 = msg.rfind("- Path1 Queue ", 0) == 0;
+    if (!p1 && msg.rfind("- Path2 Queue ", 0) != 0)
+        return false;
+    std::string rest = msg.substr(14);
+    const size_t sep = rest.find(" - ");
+    if (sep == std::string::npos)
+        return false;
+    const std::string action = rest.substr(0, sep);
+    out.path = rest.substr(sep + 3);
+    if (action.rfind("copy to Path", 0) == 0) {
+        out.copy = true;
+        out.side = action.back() == '2' ? 2 : 1;
+        return true;
+    }
+    if (action == "delete") {
+        out.copy = false;
+        out.side = p1 ? 1 : 2;
+        return true;
+    }
+    return false;
+}
+
+bool parse_bisync_conflict(const std::string &raw, std::string &path)
+{
+    const std::string msg = squeeze_spaces(strip_ansi(raw));
+    const std::string head = "- WARNING New or changed in both paths - ";
+    if (msg.rfind(head, 0) != 0)
+        return false;
+    path = msg.substr(head.size());
+    return !path.empty();
+}
+
+bool parse_bisync_changed(const std::string &raw, std::string &path)
+{
+    const std::string msg = squeeze_spaces(strip_ansi(raw));
+    if (msg.rfind("- Path", 0) != 0 || msg.find(" File changed:") == std::string::npos)
+        return false;
+    const size_t sep = msg.rfind(" - ");
+    if (sep == std::string::npos || sep < 10)
+        return false;
+    path = msg.substr(sep + 3);
+    return !path.empty();
+}
+
+bool valid_bwlimit(const std::string &spec)
+{
+    static const std::regex rate(R"((off|\d+(\.\d+)?[bBkKMGTP]?i?)(:(off|\d+(\.\d+)?[bBkKMGTP]?i?))?)", std::regex::icase);
+    static const std::regex timed(
+        R"(((mon|tue|wed|thu|fri|sat|sun)-)?([01]?\d|2[0-3]):[0-5]\d,.+)", std::regex::icase);
+    std::istringstream in(spec);
+    std::string tok;
+    bool any = false;
+    while (in >> tok) {
+        any = true;
+        std::string r = tok;
+        if (std::regex_match(tok, timed))
+            r = tok.substr(tok.find(',') + 1);
+        else if (tok.find(',') != std::string::npos)
+            return false;
+        if (!std::regex_match(r, rate))
+            return false;
+    }
+    return any || trim(spec).empty();
 }
 
 bool valid_files_from_raw_name(const std::string &name)
@@ -540,9 +646,13 @@ void PlanCollector::mark_updates(const std::vector<std::string> &paths)
 void PlanCollector::merge(PlanCollector &&other, const std::string &dest)
 {
     for (auto &item : other.items) {
-        item.dest = dest;
+        if (!dest.empty())
+            item.dest = item.dest.empty() ? dest : item.dest + " · " + dest;
         items.push_back(std::move(item));
     }
+    conflicts.insert(conflicts.end(), other.conflicts.begin(), other.conflicts.end());
+    first_sync = first_sync || other.first_sync;
+    two_way = two_way || other.two_way;
     copies += other.copies;
     updates += other.updates;
     moves += other.moves;
@@ -612,6 +722,11 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
     }
 
     std::string last_error;
+    const bool is_bisync = !args.empty() && args[0] == "bisync";
+    if (is_bisync && opt.plan)
+        opt.plan->two_way = true;
+    std::vector<BisyncQueued> queued;
+    std::vector<std::string> bis_changed;
     auto on_line = [&](const std::string &line) {
         if (line.empty())
             return;
@@ -627,12 +742,40 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
             return;
         }
         std::string level = jv(j, "level", "info");
-        std::string msg = jv(j, "msg", "");
+        std::string msg = strip_ansi(jv(j, "msg", ""));
         std::string object = jv(j, "object", "");
+        if (is_bisync && opt.plan) {
+            BisyncQueued q;
+            std::string p;
+            if (parse_bisync_queued(msg, q))
+                queued.push_back(q);
+            else if (parse_bisync_conflict(msg, p))
+                opt.plan->conflicts.push_back(p);
+            else if (parse_bisync_changed(msg, p))
+                bis_changed.push_back(p);
+        }
         if (opt.dry_run && opt.plan && j.contains("skipped") && j["skipped"].is_string()) {
             const std::string what = j["skipped"].get<std::string>();
-            if (what == "copy" || what == "move" || what == "delete")
-                opt.plan->add({ what, object, jv(j, "size", static_cast<int64_t>(0)), "" });
+            if (what == "copy" || what == "move" || what == "delete") {
+                std::string side;
+                if (is_bisync) {
+                    std::string obj = object;
+                    std::replace(obj.begin(), obj.end(), '\\', '/');
+                    for (const auto &q : queued) {
+                        std::string qp = q.path;
+                        std::replace(qp.begin(), qp.end(), '\\', '/');
+                        const bool match = qp == obj || (qp.size() > obj.size() && qp.compare(qp.size() - obj.size(), obj.size(), obj) == 0
+                                                         && (qp[qp.size() - obj.size() - 1] == '/' || qp[qp.size() - obj.size() - 1] == ':'));
+                        if (match && q.copy == (what == "copy")) {
+                            side = q.side == 2 ? "al destino" : "al origen";
+                            if (!q.copy)
+                                side = q.side == 2 ? "en el destino" : "en el origen";
+                            break;
+                        }
+                    }
+                }
+                opt.plan->add({ what, object, jv(j, "size", static_cast<int64_t>(0)), side });
+            }
         }
         if (!object.empty() && msg.find(object) == std::string::npos)
             msg = object + ": " + msg;
@@ -661,6 +804,8 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
         remove_temp_file(combined_file);
         opt.plan->mark_updates(changed);
     }
+    if (is_bisync && opt.plan)
+        opt.plan->mark_updates(bis_changed);
     if (!r.started)
         return { false, "No se pudo ejecutar rclone." };
     if (handle && handle->killed())
@@ -679,8 +824,39 @@ OpResult Rclone::transfer(const std::string &src, const std::string &dst,
                           const std::function<void(const std::string &, const std::string &)> &on_log,
                           ProcessHandle *handle) const
 {
+    if (opt.mode == "bisync")
+        return bisync(src, dst, opt, on_stats, on_log, handle);
     std::string mode = opt.mode == "sync" || opt.mode == "move" ? opt.mode : "copy";
     return run_transfer(*this, { mode, src, dst }, opt, on_stats, on_log, handle);
+}
+
+OpResult Rclone::bisync(const std::string &src, const std::string &dst, const TransferOptions &opt,
+                        const std::function<void(const Stats &)> &on_stats,
+                        const std::function<void(const std::string &, const std::string &)> &on_log,
+                        ProcessHandle *handle) const
+{
+    TransferOptions o = opt;
+    o.files_from.clear();
+    o.ignore_existing = false;
+    o.update_existing = false;
+    const std::vector<std::string> base { "bisync", src, dst, "--resilient", "--recover", "--max-lock=2m",
+                                          "--conflict-resolve=newer", "--conflict-loser=num" };
+    OpResult r = run_transfer(*this, base, o, on_stats, on_log, handle);
+    if (r.ok || (handle && handle->killed()))
+        return r;
+    std::string lower = r.message;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lower.find("resync") == std::string::npos)
+        return r;
+    // No usable baseline yet (first run, or the filters changed): rclone asks for --resync.
+    if (!o.dry_run && !o.allow_resync)
+        return { false, "Falta la primera sincronización. Ejecuta el trabajo desde la aplicación para revisarla y confirmarla." };
+    if (o.plan)
+        o.plan->first_sync = true;
+    auto again = base;
+    again.push_back("--resync");
+    again.push_back("--resync-mode=newer");
+    return run_transfer(*this, again, o, on_stats, on_log, handle);
 }
 
 OpResult Rclone::transfer_file(const std::string &src, const std::string &dst, bool move,
@@ -706,6 +882,8 @@ OpResult Rclone::compare(const std::string &left, const std::string &right,
     args.push_back("--checkers=" + std::to_string(std::max(1, o.checkers)));
     if (o.size_only)
         args.push_back("--size-only");
+    if (opt.one_way)
+        args.push_back("--one-way");
     filter_file = write_filter_file(o.filters);
     if (!filter_file.empty())
         args.push_back("--filter-from=" + filter_file);
@@ -740,6 +918,56 @@ OpResult Rclone::compare(const std::string &left, const std::string &right,
         if (!trim(r.err).empty())
             return { false, t };
     }
+    return { true, {} };
+}
+
+OpResult Rclone::filter_preview(const std::string &root, const std::string &filters, FilterPreview &out,
+                                ProcessHandle *handle) const
+{
+    if (!valid_path_spec(root))
+        return { false, "La ruta no es válida." };
+    constexpr size_t kMax = 200000;
+    auto list = [&](const std::string &filter_file, std::set<std::string> &into, std::string &err) {
+        std::vector<std::string> args { "lsf", root, "-R", "--files-only" };
+        if (!filter_file.empty())
+            args.push_back("--filter-from=" + filter_file);
+        bool over = false;
+        auto r = run_process(exe_, args, [&](const std::string &line) {
+            if (line.empty())
+                return;
+            if (into.size() >= kMax) {
+                over = true;
+                return;
+            }
+            into.insert(line);
+        }, {}, handle);
+        if (!r.started)
+            err = "No se pudo ejecutar rclone.";
+        else if (r.exit_code != 0)
+            err = error_text(r);
+        return over;
+    };
+    std::string filter_file = write_filter_file(filters);
+    std::set<std::string> all, kept;
+    std::string err;
+    bool over = list("", all, err);
+    if (err.empty())
+        over = list(filter_file, kept, err) || over;
+    remove_temp_file(filter_file);
+    if (handle && handle->killed())
+        return { false, "Cancelado por el usuario." };
+    if (!err.empty())
+        return { false, err };
+    out.kept = static_cast<int64_t>(kept.size());
+    out.excluded = 0;
+    for (const auto &name : all) {
+        if (kept.count(name))
+            continue;
+        ++out.excluded;
+        if (out.excluded_sample.size() < 500)
+            out.excluded_sample.push_back(name);
+    }
+    out.truncated = over;
     return { true, {} };
 }
 

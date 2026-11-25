@@ -142,8 +142,8 @@ export component PlanDialog inherits Modal {
                             width: 84px;
                             Badge {
                                 y: (parent.height - self.height) / 2;
-                                text: r.action == "copy" ? "Copiar" : r.action == "update" ? "Actualizar" : r.action == "move" ? "Mover" : "Borrar";
-                                tone: r.action == "delete" ? Theme.danger : r.action == "update" ? Theme.warning : Theme.accent;
+                                text: r.action == "copy" ? "Copiar" : r.action == "update" ? "Actualizar" : r.action == "move" ? "Mover" : r.action == "missing" ? "Falta" : r.action == "differ" ? "Distinto" : "Borrar";
+                                tone: r.action == "delete" || r.action == "missing" ? Theme.danger : r.action == "update" || r.action == "differ" ? Theme.warning : Theme.accent;
                             }
                         }
                         Text {
@@ -252,16 +252,17 @@ export component JobDialog inherits Modal {
                     spacing: 5px;
                     FieldLabel { text: "Modo"; }
                     Segmented {
-                        model: ["Copiar", "Sincronizar (espejo)", "Mover"];
+                        model: ["Copiar", "Sincronizar (espejo)", "Mover", "Bidireccional"];
                         current-index: Backend.job-form.mode-index;
                         selected(i) => { Backend.job-form.mode-index = i; }
                     }
                     Text {
                         text: Backend.job-form.mode-index == 0 ? "Copia lo nuevo o modificado. Nunca borra nada en el destino."
                             : Backend.job-form.mode-index == 1 ? "El destino queda idéntico al origen. Borra en el destino lo que no exista en el origen."
+                            : Backend.job-form.mode-index == 3 ? "Los cambios se propagan en los dos sentidos, incluidos los borrados. Si un archivo cambia en ambos lados, gana el más reciente y la otra versión se conserva como .conflict1. Con varios destinos, cada uno se sincroniza con el origen por separado."
                             : "Copia al destino y elimina los archivos del origen.";
                         font-size: 11px;
-                        color: Backend.job-form.mode-index == 1 ? Theme.warning : Theme.text-dim;
+                        color: Backend.job-form.mode-index == 1 || Backend.job-form.mode-index == 3 ? Theme.warning : Theme.text-dim;
                         wrap: word-wrap;
                     }
                 }
@@ -281,8 +282,14 @@ export component JobDialog inherits Modal {
                     VerticalLayout {
                         spacing: 5px;
                         FieldLabel { text: "Límite de velocidad"; }
-                        TextField { value: Backend.job-form.bwlimit; placeholder: "Ej. 2M"; edited(t) => { Backend.job-form.bwlimit = t; } }
+                        TextField { value: Backend.job-form.bwlimit; placeholder: "2M  ·  09:00,2M 18:00,off"; edited(t) => { Backend.job-form.bwlimit = t; } }
                     }
+                }
+                Text {
+                    text: "Límite de velocidad: una cifra fija (2M) o un horario «hora,límite» separado por espacios, por ejemplo 09:00,2M 18:00,off (2 MB/s de 9:00 a 18:00 y sin límite el resto). Se aplica a cada transferencia con la hora del equipo; con días: Mon-09:00,1M Sat-00:00,off."; 
+                    font-size: 11px;
+                    color: Theme.text-dim;
+                    wrap: word-wrap;
                 }
                 VerticalLayout {
                     spacing: 2px;
@@ -296,16 +303,17 @@ export component JobDialog inherits Modal {
                     spacing: 5px;
                     HorizontalLayout {
                         spacing: 8px;
-                        FieldLabel { text: "Filtros (uno por línea)  —  - *.tmp   ·   + *.jpg"; }
+                        FieldLabel { text: "Exclusiones y filtros (uno por línea)  —  - *.tmp   ·   + *.jpg"; }
                         Rectangle { horizontal-stretch: 1; }
-                        Btn {
-                            compact: true;
-                            kind: "ghost";
-                            text: "Excluir node_modules, vendor y .git";
-                            clicked => {
-                                Backend.job-form.filters = Backend.job-form.filters + (Backend.job-form.filters == "" ? "" : "\n") + "- node_modules/**\n- vendor/**\n- .git/**";
-                            }
-                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        Btn { compact: true; text: "node_modules"; clicked => { Backend.job-filter-template("node_modules"); } }
+                        Btn { compact: true; text: ".git"; clicked => { Backend.job-filter-template("git"); } }
+                        Btn { compact: true; text: "Temporales de Office"; clicked => { Backend.job-filter-template("office"); } }
+                        Btn { compact: true; text: "Thumbs.db y similares"; clicked => { Backend.job-filter-template("thumbs"); } }
+                        Btn { compact: true; text: "vendor"; clicked => { Backend.job-filter-template("vendor"); } }
                     }
                     TextField {
                         value: Backend.job-form.filters;
@@ -313,6 +321,40 @@ export component JobDialog inherits Modal {
                         multiline: true;
                         placeholder: "- *.tmp";
                         edited(t) => { Backend.job-form.filters = t; }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Btn {
+                            compact: true;
+                            text: Backend.job-filter-busy ? "Calculando…" : "Ver qué queda fuera";
+                            enabled: !Backend.job-filter-busy;
+                            clicked => { Backend.job-filter-preview(); }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: "Lista los archivos del origen que estas reglas dejan sin tocar. No cambia nada.";
+                            font-size: 11px;
+                            color: Theme.text-dim;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+                    if Backend.job-filter-result != "": Rectangle {
+                        background: Theme.surface2;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        height: res.preferred-height + 16px;
+                        res := Text {
+                            x: 8px;
+                            y: 8px;
+                            width: parent.width - 16px;
+                            text: Backend.job-filter-result;
+                            font-family: "Consolas";
+                            font-size: 11px;
+                            color: Theme.text;
+                            wrap: word-wrap;
+                        }
                     }
                 }
                 VerticalLayout {

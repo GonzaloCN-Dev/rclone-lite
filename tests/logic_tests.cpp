@@ -35,6 +35,13 @@ int main()
     require(rl::should_defer_update(1), "updates wait for active transfers");
     require(!rl::should_defer_update(0), "updates may proceed without active transfers");
 
+    require(valid_bwlimit(""), "an empty bandwidth limit is valid");
+    require(valid_bwlimit("2M") && valid_bwlimit("512k") && valid_bwlimit("1.5M:off"), "plain bandwidth limits are valid");
+    require(valid_bwlimit("09:00,2M 18:00,off"), "a timetable is valid");
+    require(valid_bwlimit("Mon-09:00,1M Sat-00:00,off"), "a weekday timetable is valid");
+    require(!valid_bwlimit("fast") && !valid_bwlimit("25:00,2M") && !valid_bwlimit("09:00,x"),
+            "malformed bandwidth limits are rejected");
+    require(!valid_bwlimit("2M --config x") && !valid_bwlimit("09:00,2M;calc"), "bandwidth limits cannot carry other flags");
     require(valid_path_spec("drive:photos"), "remote paths are valid");
     require(valid_path_spec("C:/Users/name"), "Windows paths are valid");
     require(!valid_path_spec("--config=C:/outside.conf"), "leading flags are not valid paths");

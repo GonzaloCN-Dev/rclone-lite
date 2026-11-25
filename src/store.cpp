@@ -264,6 +264,7 @@ void Store::load()
         settings.checkers = jv(j, "checkers", 8);
         settings.confirm_delete = jv(j, "confirm_delete", true);
         settings.notify_done = jv(j, "notify_done", true);
+        settings.notify_failures = jv(j, "notify_failures", true);
         settings.minimize_to_tray = jv(j, "minimize_to_tray", false);
         settings.auto_update = jv(j, "auto_update", true);
         settings.auto_tune = jv(j, "auto_tune", true);
@@ -329,6 +330,7 @@ bool Store::save() const
                { "checkers", settings.checkers },
                { "confirm_delete", settings.confirm_delete },
                { "notify_done", settings.notify_done },
+               { "notify_failures", settings.notify_failures },
                { "minimize_to_tray", settings.minimize_to_tray },
                { "auto_update", settings.auto_update },
                { "auto_tune", settings.auto_tune },
@@ -431,7 +433,9 @@ bool Store::parse_jobs_import(const std::string &text, std::vector<Job> &out, Im
         }
         job.options.extra_flags = sanitize_extra_flags(job.options.extra_flags, &rep.removed_flags);
         job.options.files_from.clear();
-        if (job.options.mode != "sync" && job.options.mode != "move")
+        if (!valid_bwlimit(job.options.bwlimit))
+            job.options.bwlimit.clear();
+        if (job.options.mode != "sync" && job.options.mode != "move" && job.options.mode != "bisync")
             job.options.mode = "copy";
         if (job.options.mode == "sync")
             ++rep.sync_jobs;

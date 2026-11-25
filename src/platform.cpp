@@ -396,6 +396,101 @@ void tray_notify(const std::string &title, const std::string &text, bool error)
     Shell_NotifyIconW(NIM_MODIFY, &n);
 }
 
+namespace {
+
+constexpr wchar_t kToastAppId[] = L"RcloneLite.App";
+
+bool set_reg_string(HKEY root, const std::wstring &subkey, const wchar_t *name, const std::wstring &value)
+{
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(root, subkey.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+        return false;
+    const LSTATUS r = RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE *>(value.c_str()),
+                                     static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(key);
+    return r == ERROR_SUCCESS;
+}
+
+std::string xml_escape(const std::string &s)
+{
+    std::string out;
+    for (char c : s) {
+        switch (c) {
+        case '&': out += "&amp;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        case '"': out += "&quot;"; break;
+        case '\'': out += "&apos;"; break;
+        default: out.push_back(c);
+        }
+    }
+    return out;
+}
+
+std::string base64(const std::string &bytes)
+{
+    static const char *tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    size_t i = 0;
+    for (; i + 2 < bytes.size(); i += 3) {
+        const unsigned n = (static_cast<unsigned char>(bytes[i]) << 16) | (static_cast<unsigned char>(bytes[i + 1]) << 8) |
+                           static_cast<unsigned char>(bytes[i + 2]);
+        out += { tbl[n >> 18], tbl[(n >> 12) & 63], tbl[(n >> 6) & 63], tbl[n & 63] };
+    }
+    if (i + 1 == bytes.size()) {
+        const unsigned n = static_cast<unsigned char>(bytes[i]) << 16;
+        out += { tbl[n >> 18], tbl[(n >> 12) & 63], '=', '=' };
+    } else if (i + 2 == bytes.size()) {
+        const unsigned n = (static_cast<unsigned char>(bytes[i]) << 16) | (static_cast<unsigned char>(bytes[i + 1]) << 8);
+        out += { tbl[n >> 18], tbl[(n >> 12) & 63], tbl[(n >> 6) & 63], '=' };
+    }
+    return out;
+}
+
+} // namespace
+
+void register_retry_protocol(const std::string &exe_path)
+{
+    if (exe_path.empty())
+        return;
+    const std::wstring exe = utf8_to_wide(exe_path);
+    set_reg_string(HKEY_CURRENT_USER, L"Software\\Classes\\rclonelite", nullptr, L"URL:Rclone Lite");
+    set_reg_string(HKEY_CURRENT_USER, L"Software\\Classes\\rclonelite", L"URL Protocol", L"");
+    set_reg_string(HKEY_CURRENT_USER, L"Software\\Classes\\rclonelite\\shell\\open\\command", nullptr,
+                   L"\"" + exe + L"\" \"%1\"");
+    const std::wstring app = std::wstring(L"Software\\Classes\\AppUserModelId\\") + kToastAppId;
+    set_reg_string(HKEY_CURRENT_USER, app, L"DisplayName", L"Rclone Lite");
+    set_reg_string(HKEY_CURRENT_USER, app, L"IconUri", exe);
+}
+
+bool toast_failure(const std::string &title, const std::string &text, const std::string &retry_uri)
+{
+    std::string xml = "<toast scenario=\"reminder\"><visual><binding template=\"ToastGeneric\"><text>" + xml_escape(title) +
+                      "</text><text>" + xml_escape(text.substr(0, 300)) + "</text></binding></visual><actions>";
+    if (!retry_uri.empty())
+        xml += "<action content=\"Reintentar\" arguments=\"" + xml_escape(retry_uri) + "\" activationType=\"protocol\"/>";
+    xml += "<action content=\"Cerrar\" arguments=\"dismiss\" activationType=\"system\"/></actions></toast>";
+    std::string quoted;
+    for (char c : xml)
+        quoted += c == '\'' ? std::string("''") : std::string(1, c);
+    const std::string script =
+            "$ErrorActionPreference='Stop';"
+            "[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
+            "[Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]|Out-Null;"
+            "$x=New-Object Windows.Data.Xml.Dom.XmlDocument;$x.LoadXml('" + quoted + "');"
+            "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('" + wide_to_utf8(kToastAppId) +
+            "').Show([Windows.UI.Notifications.ToastNotification]::new($x))";
+    const std::wstring wide = utf8_to_wide(script);
+    const std::string bytes(reinterpret_cast<const char *>(wide.data()), wide.size() * sizeof(wchar_t));
+    ProcessResult r = run_process("powershell.exe", { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                                                      "-EncodedCommand", base64(bytes) });
+    if (!r.started || r.exit_code != 0) {
+        log_error("No se pudo mostrar la notificación de Windows: " + (r.err.empty() ? r.out : r.err));
+        return false;
+    }
+    return true;
+}
+
 bool app_is_foreground()
 {
     HWND fg = GetForegroundWindow();

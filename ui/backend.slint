@@ -116,6 +116,11 @@ export global Backend {
     callback job-import();
     callback job-use-pane(int, bool);
     callback job-from-sync();
+    callback job-check();
+    callback job-filter-template(string);
+    callback job-filter-preview();
+    in property <string> job-filter-result;
+    in property <bool> job-filter-busy: false;
 
     // Mounts
     in property <[MountRow]> mounts;
@@ -159,6 +164,7 @@ export global Backend {
     in-out property <string> set-extra;
     in-out property <bool> set-confirm-delete: true;
     in-out property <bool> set-notify-done: true;
+    in-out property <bool> set-notify-failures: true;
     in-out property <bool> set-minimize-tray: false;
     in-out property <bool> set-auto-update: true;
     in-out property <bool> set-auto-tune: true;

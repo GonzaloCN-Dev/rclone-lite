@@ -340,6 +340,12 @@ private:
                  std::function<void(bool)> after = {});
     void preview_sync_then_confirm(const std::string &id);
     void check_schedules();
+    void handle_retry_requests();
+    void check_job();
+    void show_check_result(const std::string &name, const std::vector<PlanItem> &items, int64_t same, int dests, bool move);
+    void add_filter_template(const std::string &which);
+    void preview_filters();
+    void offer_background_failures();
     void sync_background_scheduler();
     std::string schedule_text(const Schedule &s) const;
     void export_jobs();
@@ -1304,6 +1310,15 @@ void Controller::sample_speed()
     B().set_speed_peak(S(peak > 0 ? "máx. " + format_speed(peak) : ""));
 }
 
+namespace {
+
+bool needs_preview(const TransferOptions &o)
+{
+    return (o.mode == "sync" || o.mode == "bisync") && !o.dry_run;
+}
+
+} // namespace
+
 void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                             std::function<void(bool, bool, const std::string &)> on_done)
 {
@@ -1325,7 +1340,7 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                     toast("El trabajo ya no existe.", true);
                     return;
                 }
-                if (preview || (!dry && job->options.mode == "sync" && !job->options.dry_run))
+                if (preview || (!dry && needs_preview(job->options)))
                     preview_sync_then_confirm(job_id);
                 else
                     run_job(job_id, dry, "manual");
@@ -1660,18 +1675,36 @@ void Controller::show_plan(const PlanCollector &plan, bool confirm_sync, const s
 
     B().set_plan_title(S(confirm_sync ? "Revisar antes de sincronizar" : "Resultado de la simulación"));
     B().set_plan_summary(S(job_name.empty() ? summary : job_name + "\n" + summary));
-    B().set_plan_warning(S(confirm_sync && plan.deletes > 0
-                                   ? "Al aplicar la sincronización se borrarán " + std::to_string(plan.deletes) +
-                                             (plan.deletes == 1 ? " archivo" : " archivos") +
-                                             " del destino porque no existen en el origen. Revisa la lista antes de continuar."
-                                   : ""));
+    std::string warning;
+    if (confirm_sync && plan.deletes > 0) {
+        warning = plan.two_way ? "Se borrarán " + std::to_string(plan.deletes) + (plan.deletes == 1 ? " archivo" : " archivos") +
+                                         " en uno de los lados porque se borraron en el otro desde la última sincronización. Revisa la lista antes de continuar."
+                               : "Al aplicar la sincronización se borrarán " + std::to_string(plan.deletes) +
+                                         (plan.deletes == 1 ? " archivo" : " archivos") +
+                                         " del destino porque no existen en el origen. Revisa la lista antes de continuar.";
+    }
+    if (plan.two_way && plan.first_sync)
+        warning += std::string(warning.empty() ? "" : "\n") +
+                   "Es la primera sincronización de este par de carpetas: se copia lo que falte a cada lado y, si un archivo existe en los dos con contenido distinto, gana el más reciente. No se borra nada.";
+    if (plan.two_way && !plan.conflicts.empty()) {
+        warning += std::string(warning.empty() ? "" : "\n") + std::to_string(plan.conflicts.size()) +
+                   (plan.conflicts.size() == 1 ? " archivo cambió" : " archivos cambiaron") +
+                   " en los dos lados. Se conserva el más reciente y la otra versión queda guardada junto a él con la terminación .conflict1: ";
+        for (size_t i = 0; i < plan.conflicts.size() && i < 4; ++i)
+            warning += (i ? ", " : "") + plan.conflicts[i];
+        if (plan.conflicts.size() > 4)
+            warning += "…";
+    }
+    B().set_plan_warning(S(warning));
     std::string note = "La simulación no ha modificado nada; el contenido puede cambiar antes de aplicarla.";
     if (plan.truncated || order.size() > kRows)
         note = "Se muestran los primeros " + std::to_string(std::min(order.size(), kRows)) + " de " +
                std::to_string(plan.total()) + " cambios. " + note;
     B().set_plan_note(S(note));
     B().set_plan_confirm(S(confirm_sync ? "Aplicar sincronización" : ""));
-    B().set_plan_danger(confirm_sync && plan.deletes > 0);
+    if (plan.two_way && plan.total() == 0 && plan.conflicts.empty())
+        B().set_plan_summary(S(job_name.empty() ? "Ambos lados ya están al día." : job_name + "\nAmbos lados ya están al día."));
+    B().set_plan_danger(confirm_sync && plan.deletes > 0 && !plan.two_way);
     plan_action_ = std::move(on_accept);
     B().set_plan_open(true);
 }
@@ -2389,7 +2422,7 @@ void Controller::refresh_jobs()
         for (auto &x : j.destinations)
             d += (d.empty() ? "" : ", ") + x;
         r.dest = S(d);
-        r.mode = S(j.options.mode == "sync" ? "Sincronizar" : j.options.mode == "move" ? "Mover" : "Copiar");
+        r.mode = S(j.options.mode == "sync" ? "Sincronizar" : j.options.mode == "bisync" ? "Bidireccional" : j.options.mode == "move" ? "Mover" : "Copiar");
         r.schedule = S(schedule_text(j.schedule));
         r.last_run = S(format_time(j.last_run));
         r.status = S(j.last_status);
@@ -2428,7 +2461,7 @@ void Controller::open_job_form(const Job *job, bool from_panes)
         }
     }
     if (job)
-        mode_index = o.mode == "sync" ? 1 : o.mode == "move" ? 2 : 0;
+        mode_index = o.mode == "sync" ? 1 : o.mode == "move" ? 2 : o.mode == "bisync" ? 3 : 0;
     f.name = S(name);
     f.source = S(source);
     f.dests = S(dests);
@@ -2448,6 +2481,7 @@ void Controller::open_job_form(const Job *job, bool from_panes)
     f.interval = S(std::to_string(sch.interval_minutes));
     f.daily_time = S(sch.daily_time);
     B().set_job_form(f);
+    B().set_job_filter_result(S(""));
     B().set_job_editing(true);
 }
 
@@ -2471,7 +2505,7 @@ bool Controller::save_job_from_form(std::string &id_out)
             toast("El origen y un destino son iguales.", true);
             return false;
         }
-    j.options.mode = f.mode_index == 1 ? "sync" : f.mode_index == 2 ? "move" : "copy";
+    j.options.mode = f.mode_index == 1 ? "sync" : f.mode_index == 2 ? "move" : f.mode_index == 3 ? "bisync" : "copy";
     j.options.transfers = parse_int(T(f.transfers), 4, 1, 64);
     j.options.checkers = parse_int(T(f.checkers), 8, 1, 128);
     j.options.dry_run = f.dry_run;
@@ -2480,6 +2514,10 @@ bool Controller::save_job_from_form(std::string &id_out)
     j.options.ignore_existing = f.ignore_existing;
     j.options.update_existing = f.update_existing;
     j.options.bwlimit = trim(T(f.bwlimit));
+    if (!valid_bwlimit(j.options.bwlimit)) {
+        toast("Límite de velocidad no válido. Ejemplos: 2M  ·  09:00,2M 18:00,off", true);
+        return false;
+    }
     j.options.filters = trim(T(f.filters));
     j.options.extra_flags = trim(T(f.extra));
     j.schedule.enabled = f.schedule_enabled;
@@ -2553,6 +2591,7 @@ void Controller::run_job(const std::string &id, bool dry, const std::string &tri
         s.mode = j->options.mode;
         s.opt = with_defaults(j->options);
         s.opt.dry_run = dry || j->options.dry_run;
+        s.opt.allow_resync = trigger == "manual" || trigger == "preview";
         steps.push_back(std::move(s));
         dests += (dests.empty() ? "" : ", ") + d;
     }
@@ -2597,6 +2636,228 @@ void Controller::preview_sync_then_confirm(const std::string &id)
         std::shared_ptr<PlanCollector> plan = last_plan_ ? last_plan_ : std::make_shared<PlanCollector>();
         show_plan(*plan, true, name, [this, id] { run_job(id, false, "manual"); });
     });
+}
+
+void Controller::show_check_result(const std::string &name, const std::vector<PlanItem> &items, int64_t same, int dests,
+                                      bool move)
+{
+    int64_t missing = 0, differ = 0;
+    constexpr size_t kRows = 3000;
+    std::vector<PlanRow> rows;
+    for (const auto &it : items) {
+        (it.action == "missing" ? missing : differ) += 1;
+        if (rows.size() < kRows) {
+            PlanRow r;
+            r.action = S(it.action);
+            r.path = S(it.path);
+            r.size = S("");
+            r.dest = S(it.dest);
+            rows.push_back(std::move(r));
+        }
+    }
+    plan_rows_->set_vector(std::move(rows));
+    const bool clean = items.empty();
+    std::string summary = name + "\n";
+    if (clean)
+        summary += "Todo coincide: " + std::to_string(same) + (same == 1 ? " archivo está" : " archivos están") + " completos en el destino" +
+                   (dests > 1 ? " (en los " + std::to_string(dests) + " destinos)." : ".");
+    else
+        summary += std::to_string(missing) + " faltan en el destino · " + std::to_string(differ) + " son distintos · " +
+                   std::to_string(same) + " coinciden";
+    B().set_plan_title(S("Comprobación de integridad"));
+    B().set_plan_summary(S(summary));
+    std::string warning;
+    if (!clean && move)
+        warning = "Este trabajo mueve archivos y borra el origen. No lo ejecutes hasta resolver estas diferencias.";
+    B().set_plan_warning(S(warning));
+    std::string note = "Se compara el origen con cada destino (tamaño y huella cuando ambos lados la admiten; en destinos cifrados solo el tamaño). Los archivos que solo existen en el destino no cuentan. No se ha modificado nada.";
+    if (items.size() > kRows)
+        note = "Se muestran los primeros " + std::to_string(kRows) + " de " + std::to_string(items.size()) + ". " + note;
+    B().set_plan_note(S(note));
+    B().set_plan_confirm(S(""));
+    B().set_plan_danger(false);
+    plan_action_ = nullptr;
+    B().set_plan_open(true);
+}
+
+void Controller::check_job()
+{
+    int i = B().get_job_selected();
+    if (i < 0 || i >= static_cast<int>(store_.jobs.size()))
+        return;
+    if (!rc_.available()) {
+        toast("rclone no está disponible.", true);
+        return;
+    }
+    const Job job = store_.jobs[i];
+    toast("Comprobando «" + job.name + "»…");
+    TransferOptions opt;
+    opt.checkers = store_.settings.checkers;
+    opt.checksum = true;
+    opt.one_way = true;
+    opt.filters = job.options.filters;
+    const bool two_way = job.options.mode == "bisync";
+    if (two_way)
+        opt.one_way = false;
+    spawn([this, job, opt, two_way] {
+        std::vector<PlanItem> items;
+        int64_t same = 0;
+        std::string error;
+        for (const auto &d : job.destinations) {
+            std::vector<CompareItem> found;
+            OpResult r = rc_.compare(job.source, d, opt, found, nullptr);
+            if (!r.ok) {
+                error = job.destinations.size() > 1 ? d + ": " + r.message : r.message;
+                break;
+            }
+            for (const auto &c : found) {
+                if (c.status == '=') {
+                    ++same;
+                    continue;
+                }
+                const std::string where = job.destinations.size() > 1 ? d : std::string();
+                if (c.status == '-')
+                    items.push_back({ "missing", c.path, 0, where });
+                else if (c.status == '*' || c.status == '!')
+                    items.push_back({ "differ", c.path, 0, where });
+                else if (two_way)
+                    items.push_back({ "missing", c.path, 0, where.empty() ? "solo en el destino" : where + " (solo allí)" });
+            }
+        }
+        post([this, job, items = std::move(items), same, error]() mutable {
+            if (!error.empty()) {
+                toast("No se pudo comprobar: " + friendly_error(error), true);
+                return;
+            }
+            std::stable_sort(items.begin(), items.end(), [](const PlanItem &a, const PlanItem &b) { return a.path < b.path; });
+            show_check_result(job.name, items, same, static_cast<int>(job.destinations.size()), job.options.mode == "move");
+        });
+    });
+}
+
+void Controller::add_filter_template(const std::string &which)
+{
+    std::string rules;
+    if (which == "node_modules")
+        rules = "- node_modules/**";
+    else if (which == "git")
+        rules = "- .git/**";
+    else if (which == "vendor")
+        rules = "- vendor/**";
+    else if (which == "office")
+        rules = "- ~$*\n- .~lock.*#\n- *.tmp";
+    else if (which == "thumbs")
+        rules = "- Thumbs.db\n- desktop.ini\n- .DS_Store\n- ehthumbs.db";
+    else
+        return;
+    JobForm f = B().get_job_form();
+    std::string current = T(f.filters);
+    std::vector<std::string> have = split_lines(current);
+    std::string add;
+    for (const auto &line : split_lines(rules))
+        if (std::find(have.begin(), have.end(), line) == have.end())
+            add += (add.empty() ? "" : "\n") + line;
+    if (add.empty()) {
+        toast("Esa regla ya está en la lista.");
+        return;
+    }
+    current = trim(current);
+    f.filters = S(current + (current.empty() ? "" : "\n") + add);
+    B().set_job_form(f);
+    B().set_job_filter_result(S(""));
+}
+
+void Controller::preview_filters()
+{
+    JobForm f = B().get_job_form();
+    const std::string source = trim(T(f.source));
+    const std::string filters = trim(T(f.filters));
+    if (source.empty() || !valid_path_spec(source)) {
+        toast("Indica primero el origen para ver qué queda fuera.", true);
+        return;
+    }
+    if (filters.empty()) {
+        B().set_job_filter_result(S("Sin reglas: no se excluye nada."));
+        return;
+    }
+    if (!rc_.available()) {
+        toast("rclone no está disponible.", true);
+        return;
+    }
+    B().set_job_filter_busy(true);
+    B().set_job_filter_result(S(""));
+    spawn([this, source, filters] {
+        FilterPreview preview;
+        OpResult r = rc_.filter_preview(source, filters, preview, nullptr);
+        post([this, r, preview, filters] {
+            B().set_job_filter_busy(false);
+            if (T(B().get_job_form().filters) != filters)
+                return; // the rules changed while listing
+            if (!r.ok) {
+                B().set_job_filter_result(S("No se pudo listar el origen: " + friendly_error(r.message)));
+                return;
+            }
+            std::string out = std::to_string(preview.kept) + (preview.kept == 1 ? " archivo se procesa" : " archivos se procesan") + " · " +
+                              std::to_string(preview.excluded) + (preview.excluded == 1 ? " queda fuera" : " quedan fuera");
+            if (preview.truncated)
+                out += "\n(Origen muy grande: el recuento puede estar incompleto.)";
+            const size_t shown = std::min<size_t>(preview.excluded_sample.size(), 15);
+            for (size_t i = 0; i < shown; ++i)
+                out += "\n  ✕ " + preview.excluded_sample[i];
+            if (preview.excluded > static_cast<int64_t>(shown))
+                out += "\n  …y " + std::to_string(preview.excluded - static_cast<int64_t>(shown)) + " más";
+            B().set_job_filter_result(S(out));
+        });
+    });
+}
+
+void Controller::handle_retry_requests()
+{
+    for (const auto &id : take_retry_requests()) {
+        Job *j = store_.find_job(id);
+        if (!j) {
+            toast("El trabajo que se iba a reintentar ya no existe.", true);
+            continue;
+        }
+        clear_background_failure(id);
+        if (!rc_.available()) {
+            toast("rclone no está disponible.", true);
+            continue;
+        }
+        if (running_jobs_.count(id)) {
+            toast("«" + j->name + "» ya se está ejecutando.");
+            continue;
+        }
+        add_log("info", "Reintento desde la notificación: " + j->name);
+        if (needs_preview(j->options))
+            preview_sync_then_confirm(id);
+        else
+            run_job(id, false, "manual");
+    }
+}
+
+void Controller::offer_background_failures()
+{
+    auto failures = load_background_failures();
+    std::erase_if(failures, [&](const BackgroundFailure &b) { return !store_.find_job(b.job_id); });
+    if (failures.empty()) {
+        clear_background_failures();
+        return;
+    }
+    std::string text = failures.size() == 1 ? "Un trabajo programado falló en segundo plano:" : std::to_string(failures.size()) + " trabajos programados fallaron en segundo plano:";
+    for (size_t i = 0; i < failures.size() && i < 4; ++i)
+        text += "\n\n• " + failures[i].name + " (" + format_time(failures[i].time) + ")\n  " + friendly_error(failures[i].error);
+    if (failures.size() > 4)
+        text += "\n\n…y " + std::to_string(failures.size() - 4) + " más.";
+    const std::string first_id = failures.front().job_id;
+    confirm("Trabajos que fallaron", text, failures.size() == 1 ? "Reintentar" : "Reintentar todos", false,
+            [this, failures] {
+                for (const auto &b : failures)
+                    queue_retry_request(b.job_id);
+                handle_retry_requests();
+            });
+    // Whatever the answer, the user has now seen them.
+    clear_background_failures();
 }
 
 void Controller::check_schedules()
@@ -2892,6 +3153,7 @@ void Controller::load_settings_into_ui()
     B().set_set_extra(S(s.extra_flags));
     B().set_set_confirm_delete(s.confirm_delete);
     B().set_set_notify_done(s.notify_done);
+    B().set_set_notify_failures(s.notify_failures);
     B().set_set_minimize_tray(s.minimize_to_tray);
     B().set_set_auto_update(s.auto_update);
     B().set_set_auto_tune(s.auto_tune);
@@ -2904,6 +3166,10 @@ void Controller::load_settings_into_ui()
 void Controller::apply_settings()
 {
     auto &s = store_.settings;
+    if (!valid_bwlimit(trim(T(B().get_set_bwlimit())))) {
+        toast("Límite de velocidad no válido. Ejemplos: 2M  ·  09:00,2M 18:00,off", true);
+        return;
+    }
     s.rclone_path = trim(T(B().get_set_rclone_path()));
     s.transfers = parse_int(T(B().get_set_transfers()), 4, 1, 64);
     s.checkers = parse_int(T(B().get_set_checkers()), 8, 1, 128);
@@ -2911,6 +3177,7 @@ void Controller::apply_settings()
     s.extra_flags = trim(T(B().get_set_extra()));
     s.confirm_delete = B().get_set_confirm_delete();
     s.notify_done = B().get_set_notify_done();
+    s.notify_failures = B().get_set_notify_failures();
     s.minimize_to_tray = B().get_set_minimize_tray();
     s.auto_update = B().get_set_auto_update();
     s.auto_tune = B().get_set_auto_tune();
@@ -3120,7 +3387,7 @@ void Controller::bind_callbacks()
             toast("Este trabajo ya se está ejecutando.", true);
             return;
         }
-        if (!dry && j.options.mode == "sync" && !j.options.dry_run) {
+        if (!dry && needs_preview(j.options)) {
             preview_sync_then_confirm(id);
             return;
         }
@@ -3135,12 +3402,15 @@ void Controller::bind_callbacks()
         if (!save_job_from_form(id))
             return;
         const Job *j = store_.find_job(id);
-        if (j && j->options.mode == "sync" && !j->options.dry_run) {
+        if (j && needs_preview(j->options)) {
             preview_sync_then_confirm(id);
             return;
         }
         run_job(id, false, "manual");
     });
+    b.on_job_check([this] { check_job(); });
+    b.on_job_filter_template([this](slint::SharedString which) { add_filter_template(T(which)); });
+    b.on_job_filter_preview([this] { preview_filters(); });
     b.on_job_export([this] { export_jobs(); });
     b.on_job_import([this] { import_jobs(); });
     b.on_job_use_pane([this](int side, bool is_source) {
@@ -3329,9 +3599,12 @@ void Controller::start()
     load_remotes_async();
     if (rc_.available())
         restore_queue();
+    if (store_.settings.background_schedules && T(B().get_dialog()).empty())
+        offer_background_failures();
 
     poll_timer_.start(slint::TimerMode::Repeated, std::chrono::seconds(1), [this] {
         ++tick_;
+        handle_retry_requests();
         sample_speed();
         if (tick_ == 6 && store_.settings.auto_update)
             check_updates(false);

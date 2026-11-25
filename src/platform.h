@@ -36,6 +36,10 @@ bool signal_existing_instance();
 // Notification-area icon with a context menu. Callbacks run on the UI thread.
 bool tray_create(const std::string &tooltip, std::function<void()> on_open, std::function<void()> on_quit);
 void tray_destroy();
+// Registers rclonelite:// for the current user so a notification button can start the app.
+void register_retry_protocol(const std::string &exe_path);
+// Windows toast shown from a background process. etry_uri adds a Reintentar button (may be empty).
+bool toast_failure(const std::string &title, const std::string &text, const std::string &retry_uri);
 void tray_notify(const std::string &title, const std::string &text, bool error);
 
 bool app_is_foreground();

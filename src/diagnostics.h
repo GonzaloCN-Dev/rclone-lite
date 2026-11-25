@@ -27,6 +27,14 @@ struct BackgroundRun {
     std::string last_error;
 };
 
+// A scheduled job that failed while running in the background; kept until retried or dismissed.
+struct BackgroundFailure {
+    std::string job_id;
+    std::string name;
+    std::string error;
+    int64_t time = 0;
+};
+
 struct BackgroundTask {
     bool queried = false;
     bool exists = false;
