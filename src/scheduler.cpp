@@ -6,12 +6,25 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+#include <nlohmann/json.hpp>
 
 #include "platform.h"
 #include "proc.h"
+#include "jsonutil.h"
+
+namespace fs = std::filesystem;
 
 namespace rl {
 namespace {
+
+fs::path background_status_path()
+{
+    return fs::path(utf8_to_wide(Store::data_dir())) / L"background_status.json";
+}
 
 std::wstring quote_task_argument(const std::wstring &arg)
 {
@@ -43,9 +56,11 @@ std::string task_action(const std::string &exe)
 int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now)
 {
     int failures = 0;
+    BackgroundRun run;
     for (auto &job : store.jobs) {
         if (!schedule_is_due(job.schedule, now))
             continue;
+        ++run.jobs;
 
         // Claim this occurrence before starting work, so a second minute tick cannot duplicate it.
         job.schedule.last_run = now;
@@ -75,6 +90,7 @@ int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now)
             if (!store.settings.extra_flags.empty())
                 options.extra_flags = store.settings.extra_flags + " " + options.extra_flags;
             options.update_existing = options.update_existing || store.settings.update_existing;
+            options.lock_wait_seconds = 600;
 
             ProcessHandle handle;
             Stats final_stats;
@@ -85,6 +101,8 @@ int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now)
             files += final_stats.transfers;
             if (!result.ok) {
                 ++failures;
+                ++run.failures;
+                run.last_error = result.message;
                 if (!errors.empty())
                     errors += "\n";
                 errors += destination + ": " + result.message;
@@ -113,10 +131,62 @@ int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now)
         if (!errors.empty())
             plat::log_error("Falló el trabajo programado «" + job.name + "»: " + errors);
     }
+    if (run.jobs > 0) {
+        run.time = now_unix();
+        save_background_run(run);
+    }
     return failures;
 }
 
 } // namespace
+
+void save_background_run(const BackgroundRun &run)
+{
+    nlohmann::json j = { { "time", run.time }, { "jobs", run.jobs }, { "failures", run.failures },
+                         { "last_error", run.last_error.substr(0, 400) } };
+    const fs::path path = background_status_path();
+    fs::path tmp = path;
+    tmp += L".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        f << j.dump();
+        if (!f)
+            return;
+    }
+    std::error_code ec;
+    fs::rename(tmp, path, ec);
+    if (ec)
+        fs::remove(tmp, ec);
+}
+
+BackgroundRun load_background_run()
+{
+    BackgroundRun run;
+    std::ifstream f(background_status_path(), std::ios::binary);
+    if (!f)
+        return run;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    auto j = nlohmann::json::parse(ss.str(), nullptr, false);
+    if (!j.is_object())
+        return run;
+    run.time = jv(j, "time", static_cast<int64_t>(0));
+    run.jobs = jv(j, "jobs", 0);
+    run.failures = jv(j, "failures", 0);
+    run.last_error = jv(j, "last_error", "");
+    return run;
+}
+
+BackgroundTask query_background_task(const std::string &task_name)
+{
+    ProcessResult r = run_process("schtasks.exe", { "/Query", "/TN", task_name, "/FO", "CSV", "/V", "/NH" });
+    BackgroundTask t;
+    if (!r.started || r.exit_code != 0) {
+        t.queried = r.started;
+        return t;
+    }
+    return parse_task_query_csv(r.out);
+}
 
 std::string current_executable_path()
 {

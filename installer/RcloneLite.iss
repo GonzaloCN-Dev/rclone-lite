@@ -1,8 +1,8 @@
-﻿; Instalador de Rclone Lite (Inno Setup 6).
+; Instalador de Rclone Lite (Inno Setup 6).
 ; Compilar con: installer\build-installer.ps1
 
 #define AppName "Rclone Lite"
-#define AppVersion "1.4.0"
+#define AppVersion "1.5.0"
 #define AppPublisher "Gonzalo Cruz Nuñez"
 #define AppExe "RcloneLite.exe"
 

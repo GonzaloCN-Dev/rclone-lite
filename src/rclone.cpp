@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 #include <nlohmann/json.hpp>
@@ -490,6 +491,54 @@ std::vector<std::string> Rclone::common_flags(const TransferOptions &opt,
     return a;
 }
 
+const char *transfer_busy_message()
+{
+    return "Ya hay una transferencia de Rclone Lite en curso. Espera a que termine antes de iniciar otra.";
+}
+
+void PlanCollector::add(PlanItem item)
+{
+    if (item.action == "copy")
+        ++copies, bytes_transferred += item.size;
+    else if (item.action == "move")
+        ++moves, bytes_transferred += item.size;
+    else if (item.action == "delete")
+        ++deletes, bytes_deleted += item.size;
+    else
+        return;
+    if (items.size() < kMaxItems)
+        items.push_back(std::move(item));
+    else
+        truncated = true;
+}
+
+void PlanCollector::mark_updates(const std::vector<std::string> &paths)
+{
+    std::set<std::string> changed(paths.begin(), paths.end());
+    for (auto &item : items) {
+        if (item.action == "copy" && changed.count(item.path)) {
+            item.action = "update";
+            --copies;
+            ++updates;
+        }
+    }
+}
+
+void PlanCollector::merge(PlanCollector &&other, const std::string &dest)
+{
+    for (auto &item : other.items) {
+        item.dest = dest;
+        items.push_back(std::move(item));
+    }
+    copies += other.copies;
+    updates += other.updates;
+    moves += other.moves;
+    deletes += other.deletes;
+    bytes_transferred += other.bytes_transferred;
+    bytes_deleted += other.bytes_deleted;
+    truncated = truncated || other.truncated;
+}
+
 namespace {
 
 OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const TransferOptions &opt,
@@ -502,10 +551,17 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
     HANDLE transfer_mutex = CreateMutexW(nullptr, FALSE, L"Local\\RcloneLiteTransferInProgress");
     if (!transfer_mutex)
         return { false, "No se pudo preparar la protección contra transferencias simultáneas." };
-    const DWORD locked = WaitForSingleObject(transfer_mutex, 0);
+    DWORD locked = WaitForSingleObject(transfer_mutex, 0);
+    for (int waited_ms = 0; locked == WAIT_TIMEOUT && waited_ms < opt.lock_wait_seconds * 1000; waited_ms += 500) {
+        if (handle && handle->killed())
+            break;
+        locked = WaitForSingleObject(transfer_mutex, 500);
+    }
     if (locked != WAIT_OBJECT_0 && locked != WAIT_ABANDONED) {
         CloseHandle(transfer_mutex);
-        return { false, "Ya hay una transferencia de Rclone Lite en curso. Espera a que termine antes de iniciar otra." };
+        if (handle && handle->killed())
+            return { false, "Cancelado por el usuario." };
+        return { false, transfer_busy_message() };
     }
     struct TransferLock {
         HANDLE handle;
@@ -535,6 +591,12 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
         raise("--checkers", opt.checkers);
     }
     args.insert(args.end(), { "--use-json-log", "-v", "--stats=500ms", "--stats-log-level=NOTICE" });
+    std::string combined_file;
+    if (opt.dry_run && opt.plan && !args.empty() && (args[0] == "sync" || args[0] == "copy" || args[0] == "move")) {
+        combined_file = write_temp_lines({});
+        if (!combined_file.empty())
+            args.push_back("--combined=" + combined_file);
+    }
 
     std::string last_error;
     auto on_line = [&](const std::string &line) {
@@ -554,6 +616,11 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
         std::string level = jv(j, "level", "info");
         std::string msg = jv(j, "msg", "");
         std::string object = jv(j, "object", "");
+        if (opt.dry_run && opt.plan && j.contains("skipped") && j["skipped"].is_string()) {
+            const std::string what = j["skipped"].get<std::string>();
+            if (what == "copy" || what == "move" || what == "delete")
+                opt.plan->add({ what, object, jv(j, "size", static_cast<int64_t>(0)), "" });
+        }
         if (!object.empty() && msg.find(object) == std::string::npos)
             msg = object + ": " + msg;
         if (level == "error")
@@ -566,6 +633,20 @@ OpResult run_transfer(const Rclone &rc, std::vector<std::string> args, const Tra
     if (!filter_file.empty()) {
         std::error_code ec;
         fs::remove(fs::path(utf8_to_wide(filter_file)), ec);
+    }
+    if (!combined_file.empty() && opt.plan) {
+        std::ifstream in(fs::path(utf8_to_wide(combined_file)), std::ios::binary);
+        std::string line;
+        std::vector<std::string> changed;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.size() > 2 && line[0] == '*' && line[1] == ' ')
+                changed.push_back(line.substr(2));
+        }
+        in.close();
+        remove_temp_file(combined_file);
+        opt.plan->mark_updates(changed);
     }
     if (!r.started)
         return { false, "No se pudo ejecutar rclone." };

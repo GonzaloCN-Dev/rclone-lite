@@ -4,7 +4,7 @@ import { Icon, IconBtn, Btn, Badge, Sep, Spinner } from "widgets.slint";
 import { Pane } from "explorer.slint";
 import { TransferPanel } from "transfers.slint";
 import { RemotesPage, JobsPage, MountsPage, HistoryPage, SettingsPage } from "pages.slint";
-import { ConfirmDialog, JobDialog, RemoteWizard, MountDialog, ComparePanel } from "dialogs.slint";
+import { ConfirmDialog, JobDialog, RemoteWizard, MountDialog, ComparePanel, PlanDialog } from "dialogs.slint";
 
 export { Backend, Theme }
 
@@ -372,6 +372,10 @@ export component AppWindow inherits Window {
 
     // Modals
     if Backend.dialog == "confirm" || Backend.dialog == "input": ConfirmDialog {
+        width: parent.width;
+        height: parent.height;
+    }
+    if Backend.plan-open: PlanDialog {
         width: parent.width;
         height: parent.height;
     }

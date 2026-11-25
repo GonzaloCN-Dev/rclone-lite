@@ -86,6 +86,106 @@ export component ConfirmDialog inherits Modal {
     }
 }
 
+export component PlanDialog inherits Modal {
+    title: Backend.plan-title;
+    dlg-width: 760px;
+    dlg-height: 600px;
+    close => { Backend.plan-close(); }
+
+    VerticalLayout {
+        padding: 20px;
+        padding-top: 14px;
+        spacing: 10px;
+        Text {
+            text: Backend.plan-summary;
+            font-size: 13px;
+            font-weight: 600;
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        if Backend.plan-warning != "": Rectangle {
+            background: Theme.warning.with-alpha(0.15);
+            border-radius: 8px;
+            height: warn.preferred-height + 20px;
+            warn := Text {
+                x: 10px;
+                width: parent.width - 20px;
+                text: Backend.plan-warning;
+                font-size: 12px;
+                color: Theme.text;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.surface2;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+            if Backend.plan-rows.length == 0: Text {
+                text: "No hay cambios que aplicar.";
+                font-size: 13px;
+                color: Theme.text-dim;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            if Backend.plan-rows.length > 0: ListView {
+                for r[i] in Backend.plan-rows: Rectangle {
+                    height: 28px;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 10px;
+                        Rectangle {
+                            width: 84px;
+                            Badge {
+                                y: (parent.height - self.height) / 2;
+                                text: r.action == "copy" ? "Copiar" : r.action == "update" ? "Actualizar" : r.action == "move" ? "Mover" : "Borrar";
+                                tone: r.action == "delete" ? Theme.danger : r.action == "update" ? Theme.warning : Theme.accent;
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: r.dest != "" ? r.path + "   →   " + r.dest : r.path;
+                            font-family: "Consolas";
+                            font-size: 12px;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            width: 80px;
+                            text: r.size;
+                            font-size: 12px;
+                            color: Theme.text-dim;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+        if Backend.plan-note != "": Text {
+            text: Backend.plan-note;
+            font-size: 11px;
+            color: Theme.text-faint;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+            Btn { text: Backend.plan-confirm == "" ? "Cerrar" : "Cancelar"; clicked => { Backend.plan-close(); } }
+            if Backend.plan-confirm != "": Btn {
+                text: Backend.plan-confirm;
+                kind: Backend.plan-danger ? "danger" : "primary";
+                clicked => { Backend.plan-accept(); }
+            }
+        }
+    }
+}
+
 export component JobDialog inherits Modal {
     title: "Trabajo de sincronización";
     dlg-width: 680px;

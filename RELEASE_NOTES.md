@@ -1,22 +1,32 @@
-# Rclone Lite 1.4.0
+# Rclone Lite 1.5.0
 
-## Transferencias más seguras
+## Errores y reintentos
 
-- **Vista previa antes de sincronizar:** al ejecutar manualmente un trabajo de sincronización, Rclone Lite realiza primero una simulación. Revísala en Transferencias y confirma después para aplicar los cambios, incluidos los borrados del destino.
-- **Evita conflictos:** mientras una transferencia de Rclone Lite esté activa, otra operación de transferencia —también un trabajo headless— se rechaza para evitar operaciones simultáneas sobre los mismos archivos.
-- **Actualizaciones protegidas:** no se instala una actualización mientras haya transferencias activas en la aplicación.
+- **Mensajes de error comprensibles:** los errores típicos de rclone (cuota agotada, permisos, sesión caducada, ruta inexistente, falta de espacio, red) se explican con su causa y qué hacer. El texto original sigue disponible en **Detalle técnico**, con botón para copiarlo.
+- **Reintentar:** las operaciones y trabajos que fallan en Completadas tienen un botón **Reintentar** que repite el mismo origen, destino y opciones.
 
-## Trabajos programados
+## Cola de transferencias
 
-- La lista de trabajos muestra la próxima ejecución o indica cuándo una programación está vencida. El estado de la última ejecución sigue visible en la columna de estado.
+- Si inicias una transferencia mientras otra está en curso, queda **en cola** y empieza al terminar la anterior, en lugar de rechazarse. Puedes cancelarla desde la lista.
+- Los trabajos en segundo plano esperan su turno si la app está transfiriendo, y al revés.
 
-## Nota
+## Informe de simulación
 
-La vista previa es una simulación: el contenido de un remoto puede cambiar entre la simulación y la sincronización final.
+- Las simulaciones y la vista previa antes de sincronizar muestran una **lista de archivos a copiar, actualizar y borrar**, con totales y tamaños. Los borrados aparecen primero y con aviso destacado.
+
+## Segundo plano
+
+- En Ajustes se muestra cuándo se ejecutó por última vez la tarea de Windows, la próxima comprobación y si los últimos trabajos tuvieron fallos y por qué.
+
+## Notas
+
+- La simulación no modifica nada, pero el contenido puede cambiar antes de aplicarla.
+- Un informe muy grande muestra solo los primeros 3000 cambios; los totales incluyen todos.
+- La protección de actualizaciones sigue cubriendo solo las transferencias de la app, no los trabajos en segundo plano.
 
 ## Actualización
 
-Descarga `RcloneLite-Setup-1.4.0.exe` e instálalo sobre la versión anterior. Tus trabajos, remotos e historial permanecen en `%APPDATA%\RcloneLite`.
+Descarga `RcloneLite-Setup-1.5.0.exe` e instálalo sobre la versión anterior. Tus trabajos, remotos e historial permanecen en `%APPDATA%\RcloneLite`.
 
 El instalador es x64 para Windows 10/11 y no está firmado, por lo que Windows SmartScreen podría mostrar un aviso de editor desconocido.
 

@@ -53,6 +53,27 @@ struct CompareItem {
     std::string path;
 };
 
+// One change a dry run says it would make.
+struct PlanItem {
+    std::string action; // copy | update | move | delete
+    std::string path;
+    int64_t size = 0;
+    std::string dest; // set when several destinations share one report
+};
+
+struct PlanCollector {
+    static constexpr size_t kMaxItems = 200000;
+    std::vector<PlanItem> items;
+    int64_t copies = 0, updates = 0, moves = 0, deletes = 0;
+    int64_t bytes_transferred = 0, bytes_deleted = 0;
+    bool truncated = false;
+
+    void add(PlanItem item);
+    void mark_updates(const std::vector<std::string> &paths);
+    void merge(PlanCollector &&other, const std::string &dest);
+    int64_t total() const { return copies + updates + moves + deletes; }
+};
+
 struct TransferOptions {
     std::string mode = "copy"; // copy | sync | move
     int transfers = 4;
@@ -66,7 +87,14 @@ struct TransferOptions {
     std::string filters;       // newline separated rclone filter rules (e.g. "- *.tmp")
     std::string extra_flags;   // free form flags separated by spaces
     std::string files_from;    // optional path to a --files-from list
+    // Not persisted. With dry_run, receives the changes rclone reports it would make.
+    PlanCollector *plan = nullptr;
+    // Not persisted. How long to wait for another Rclone Lite transfer to finish (0 = fail at once).
+    int lock_wait_seconds = 0;
 };
+
+// Message returned when another Rclone Lite transfer owns the global transfer lock.
+const char *transfer_busy_message();
 
 struct OpResult {
     bool ok = false;

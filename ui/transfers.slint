@@ -259,52 +259,96 @@ export component TransferPanel inherits Rectangle {
                 }
                 if Backend.done-transfers.length > 0: ListView {
                     for t[i] in Backend.done-transfers: Rectangle {
-                        height: 46px;
-                        HorizontalLayout {
-                            padding-left: 14px;
-                            padding-right: 14px;
-                            spacing: 12px;
-                            Icon {
-                                width: 22px;
-                                glyph: t.state == "ok" ? "\u{E73E}" : t.state == "cancelled" ? "\u{E711}" : "\u{E783}";
-                                color: t.state == "ok" ? Theme.success : t.state == "cancelled" ? Theme.warning : Theme.danger;
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                spacing: 2px;
-                                Text {
-                                    text: t.title;
-                                    font-size: 13px;
-                                    font-weight: 500;
-                                    color: Theme.text;
-                                    overflow: elide;
+                        property <bool> open: false;
+                        height: row.preferred-height;
+                        row := VerticalLayout {
+                            Rectangle {
+                                height: 46px;
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 10px;
+                                    spacing: 12px;
+                                    Icon {
+                                        width: 22px;
+                                        glyph: t.state == "ok" ? "\u{E73E}" : t.state == "cancelled" ? "\u{E711}" : "\u{E783}";
+                                        color: t.state == "ok" ? Theme.success : t.state == "cancelled" ? Theme.warning : Theme.danger;
+                                    }
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        alignment: center;
+                                        spacing: 2px;
+                                        Text {
+                                            text: t.title;
+                                            font-size: 13px;
+                                            font-weight: 500;
+                                            color: Theme.text;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: t.state == "error" ? t.info : t.detail;
+                                            font-size: 11px;
+                                            color: t.state == "error" ? Theme.danger : Theme.text-faint;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    if t.state != "error": Text {
+                                        width: 200px;
+                                        text: t.info;
+                                        font-size: 12px;
+                                        color: Theme.text-dim;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    if t.can-retry: Btn {
+                                        y: 9px;
+                                        compact: true;
+                                        text: "Reintentar";
+                                        icon: "\u{E72C}";
+                                        kind: "primary";
+                                        clicked => { Backend.retry-transfer(t.id); }
+                                    }
+                                    if t.technical != "": Btn {
+                                        y: 9px;
+                                        compact: true;
+                                        text: open ? "Ocultar detalle" : "Detalle técnico";
+                                        kind: "ghost";
+                                        clicked => { open = !open; }
+                                    }
                                 }
-                                Text {
-                                    text: t.detail;
-                                    font-size: 11px;
-                                    color: Theme.text-faint;
-                                    overflow: elide;
+                            }
+                            if open && t.technical != "": Rectangle {
+                                background: Theme.surface2;
+                                height: tech.preferred-height + 20px;
+                                HorizontalLayout {
+                                    padding: 10px;
+                                    padding-left: 48px;
+                                    spacing: 10px;
+                                    tech := Text {
+                                        horizontal-stretch: 1;
+                                        text: t.technical;
+                                        font-family: "Consolas";
+                                        font-size: 11px;
+                                        color: Theme.text-dim;
+                                        wrap: word-wrap;
+                                    }
+                                    Btn {
+                                        y: 0px;
+                                        compact: true;
+                                        text: "Copiar";
+                                        kind: "ghost";
+                                        clicked => { Backend.copy-technical(t.technical); }
+                                    }
                                 }
                             }
-                            Text {
-                                width: 200px;
-                                text: t.info;
-                                font-size: 12px;
-                                color: Theme.text-dim;
-                                horizontal-alignment: right;
-                                vertical-alignment: center;
-                                overflow: elide;
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.border;
                             }
-                        }
-                        Rectangle {
-                            y: parent.height - 1px;
-                            height: 1px;
-                            background: Theme.border;
                         }
                     }
                 }
             }
-
             if Backend.bottom-tab == 2: Rectangle {
                 if Backend.logs.length == 0: VerticalLayout {
                     padding: 12px;

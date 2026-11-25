@@ -20,6 +20,15 @@ export struct TransferRow {
     speed: string,
     state: string,
     info: string,
+    technical: string,
+    can-retry: bool,
+}
+
+export struct PlanRow {
+    action: string,
+    path: string,
+    size: string,
+    dest: string,
 }
 
 export struct CompareRow {

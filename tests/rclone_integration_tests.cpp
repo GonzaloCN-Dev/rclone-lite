@@ -80,6 +80,20 @@ int main()
     ReleaseMutex(held_transfer);
     CloseHandle(held_transfer);
 
+    HANDLE queued_lock = CreateMutexW(nullptr, TRUE, L"Local\\RcloneLiteTransferInProgress");
+    require(queued_lock != nullptr, "test can hold the lock for the queue check");
+    std::thread releaser([&] {
+        Sleep(1200);
+        ReleaseMutex(queued_lock);
+    });
+    rl::TransferOptions queued_options;
+    queued_options.lock_wait_seconds = 10;
+    rl::ProcessHandle queued_handle;
+    auto queued = rclone.transfer(source, (root / L"queued").string(), queued_options, {}, {}, &queued_handle);
+    releaser.join();
+    CloseHandle(queued_lock);
+    require(queued.ok && fs::exists(root / L"queued" / L"keep.txt"), "a queued transfer waits for the lock and then runs");
+
     rl::TransferOptions copy_options;
     rl::ProcessHandle copy_handle;
     auto copy = rclone.transfer(source, copied, copy_options, {}, {}, &copy_handle);
@@ -102,6 +116,23 @@ int main()
     require(deleted.ok && !fs::exists(root / L"copied" / L"delete me.txt"),
             "rclone wrapper deletes only listed path");
     require(fs::exists(root / L"copied" / L"keep.txt"), "unlisted file remains");
+
+    write_text(root / L"copied" / L"stale.txt", "not in source");
+    write_text(root / L"copied" / L"keep.txt", "older and different");
+    rl::PlanCollector plan;
+    rl::TransferOptions plan_options;
+    plan_options.mode = "sync";
+    plan_options.dry_run = true;
+    plan_options.plan = &plan;
+    rl::ProcessHandle plan_handle;
+    auto planned = rclone.transfer(source, copied, plan_options, {}, {}, &plan_handle);
+    require(planned.ok, "dry-run sync succeeds");
+    bool lists_stale = false;
+    for (const auto &item : plan.items)
+        lists_stale = lists_stale || (item.action == "delete" && item.path == "stale.txt" && item.size == 13);
+    require(lists_stale && plan.deletes == 2, "dry-run plan lists the file sync would delete");
+    require(plan.updates == 1 && plan.bytes_deleted == 17, "dry-run plan separates updated files and sums deleted bytes");
+    require(fs::exists(root / L"copied" / L"stale.txt"), "dry-run does not delete anything");
 
     rl::Store store;
     rl::Job job;

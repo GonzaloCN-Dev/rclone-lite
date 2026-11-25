@@ -1,5 +1,6 @@
 #include "app.h"
 #include "close_policy.h"
+#include "diagnostics.h"
 
 #include <windows.h>
 
@@ -122,6 +123,7 @@ struct Step {
     std::string mode = "copy";
     TransferOptions opt;
     std::string temp_file;
+    std::vector<std::string> list_names; // written to a temporary --files-from list when the step starts
 };
 
 struct Task {
@@ -141,7 +143,16 @@ struct Task {
     bool throttled = false;
     bool auth_noted = false;
     int64_t bytes = 0, total = 0, files = 0;
+    bool queued = false;
+    std::function<void()> retry;
+    std::shared_ptr<PlanCollector> plan;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+};
+
+struct PendingTask {
+    std::shared_ptr<Task> task;
+    std::vector<Step> steps;
+    std::function<void(bool, bool, const std::string &)> on_done;
 };
 
 struct PaneState {
@@ -275,6 +286,13 @@ private:
     // ---- tasks
     void start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                     std::function<void(bool, bool, const std::string &)> on_done = {});
+    void launch_task(PendingTask p);
+    void start_next_task();
+    void cancel_task(const std::shared_ptr<Task> &t);
+    void cancel_all_tasks();
+    void show_plan(const PlanCollector &plan, bool dry_sync_confirm, const std::string &job_name,
+                   std::function<void()> on_accept);
+    void refresh_background_status();
     void refresh_active();
     void finish_task(const std::shared_ptr<Task> &t, bool ok, bool cancelled, const std::string &err);
     TransferOptions base_options() const;
@@ -344,6 +362,12 @@ private:
     std::shared_ptr<slint::VectorModel<TransferRow>> active_model_ = std::make_shared<slint::VectorModel<TransferRow>>();
     std::shared_ptr<slint::VectorModel<TransferRow>> done_model_ = std::make_shared<slint::VectorModel<TransferRow>>();
     std::shared_ptr<slint::VectorModel<LogRow>> log_model_ = std::make_shared<slint::VectorModel<LogRow>>();
+    std::deque<PendingTask> pending_;
+    bool task_running_ = false;
+    std::map<std::string, std::function<void()>> retry_actions_;
+    std::shared_ptr<PlanCollector> last_plan_;
+    std::shared_ptr<slint::VectorModel<PlanRow>> plan_rows_ = std::make_shared<slint::VectorModel<PlanRow>>();
+    std::function<void()> plan_action_;
     std::set<std::string> running_jobs_;
     std::set<std::string> reauth_busy_;
     bool save_warned_ = false;
@@ -932,12 +956,7 @@ void Controller::transfer_selected(bool to_right, bool move)
             s.mode = move ? "move" : "copy";
             s.opt = base_options();
             s.opt.mode = s.mode;
-            s.temp_file = write_temp_lines(file_names);
-            if (s.temp_file.empty()) {
-                toast("No se pudo crear la lista temporal de archivos.", true);
-                return;
-            }
-            s.opt.files_from = s.temp_file;
+            s.list_names = file_names;
             steps.insert(steps.begin(), std::move(s));
         } else {
             // A newline is an item separator in --files-from-raw. Keep unusual remote names
@@ -1120,7 +1139,7 @@ void Controller::refresh_active()
         r.detail = S(t->detail);
         r.progress = t->progress;
         r.speed = S(t->speed);
-        r.state = S("running");
+        r.state = S(t->queued ? "queued" : "running");
         r.info = S("");
         rows.push_back(std::move(r));
         total_speed += t->speed_val;
@@ -1282,13 +1301,97 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
         return;
     }
     t->dry = !steps.empty() && steps[0].opt.dry_run;
+    if (t->dry)
+        t->plan = std::make_shared<PlanCollector>();
+
+    if (!t->retry) {
+        if (!t->job_id.empty()) {
+            const std::string job_id = t->job_id;
+            const bool dry = t->dry, preview = t->trigger == "preview";
+            t->retry = [this, job_id, dry, preview] {
+                Job *job = store_.find_job(job_id);
+                if (!job) {
+                    toast("El trabajo ya no existe.", true);
+                    return;
+                }
+                if (preview || (!dry && job->options.mode == "sync" && !job->options.dry_run))
+                    preview_sync_then_confirm(job_id);
+                else
+                    run_job(job_id, dry, "manual");
+            };
+        } else {
+            std::vector<Step> copy = steps;
+            for (auto &s : copy)
+                s.temp_file.clear();
+            const std::string title = t->title, route = t->route, mode = t->mode;
+            t->retry = [this, copy, title, route, mode, on_done] {
+                auto nt = std::make_shared<Task>();
+                nt->id = new_id();
+                nt->title = title;
+                nt->route = route;
+                nt->mode = mode;
+                start_task(nt, copy, on_done);
+            };
+        }
+    }
+
+    t->queued = task_running_;
     tasks_.push_back(t);
+    if (t->queued)
+        t->detail = "En cola: empezará cuando termine la transferencia actual";
     refresh_active();
     B().set_bottom_tab(0);
     B().set_bottom_open(true);
-    add_log("info", t->title + "  (" + t->route + ")");
+    add_log("info", (t->queued ? "En cola: " : "") + t->title + "  (" + t->route + ")");
 
-    spawn([this, t, steps = std::move(steps), on_done = std::move(on_done)] {
+    PendingTask p { t, std::move(steps), std::move(on_done) };
+    if (task_running_) {
+        pending_.push_back(std::move(p));
+        return;
+    }
+    launch_task(std::move(p));
+}
+
+void Controller::start_next_task()
+{
+    if (task_running_ || pending_.empty())
+        return;
+    PendingTask p = std::move(pending_.front());
+    pending_.pop_front();
+    launch_task(std::move(p));
+}
+
+void Controller::cancel_task(const std::shared_ptr<Task> &t)
+{
+    auto it = std::find_if(pending_.begin(), pending_.end(), [&](const PendingTask &p) { return p.task == t; });
+    if (it == pending_.end()) {
+        t->handle.kill();
+        return;
+    }
+    PendingTask p = std::move(*it);
+    pending_.erase(it);
+    finish_task(t, false, true, "");
+    if (p.on_done)
+        p.on_done(false, true, "");
+}
+
+void Controller::cancel_all_tasks()
+{
+    std::vector<std::shared_ptr<Task>> all = tasks_;
+    for (auto &t : all)
+        cancel_task(t);
+}
+
+void Controller::launch_task(PendingTask pending)
+{
+    auto t = pending.task;
+    task_running_ = true;
+    t->queued = false;
+    t->detail = "Iniciando…";
+    t->start = std::chrono::steady_clock::now();
+    refresh_active();
+
+    spawn([this, t, steps = std::move(pending.steps), on_done = std::move(pending.on_done)]() mutable {
         int64_t base_bytes = 0, base_total = 0, base_files = 0;
         bool ok = true;
         std::string err;
@@ -1300,6 +1403,19 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                 err = "Cancelado por el usuario.";
                 break;
             }
+            if (!s.list_names.empty() && s.temp_file.empty()) {
+                s.temp_file = write_temp_lines(s.list_names);
+                if (s.temp_file.empty()) {
+                    failures.push_back("No se pudo crear la lista temporal de archivos.");
+                    continue;
+                }
+                s.opt.files_from = s.temp_file;
+            }
+            // Wait for a transfer started by a background job instead of failing.
+            s.opt.lock_wait_seconds = 3600;
+            PlanCollector step_plan;
+            if (s.opt.dry_run && t->plan)
+                s.opt.plan = &step_plan;
             Stats last;
             auto on_stats = [&](const Stats &st) {
                 last = st;
@@ -1332,6 +1448,9 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
             OpResult r = s.file ? rc_.transfer_file(s.src, s.dst, s.mode == "move", s.opt, on_stats, on_log, &t->handle)
                                 : rc_.transfer(s.src, s.dst, s.opt, on_stats, on_log, &t->handle);
             remove_temp_file(s.temp_file);
+            s.temp_file.clear();
+            if (s.opt.plan && r.ok)
+                t->plan->merge(std::move(step_plan), steps.size() > 1 ? s.dst : std::string());
             base_bytes += last.bytes;
             base_total += last.total_bytes;
             base_files += last.transfers;
@@ -1363,13 +1482,91 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                 t->bytes = base_bytes;
             if (base_files > t->files)
                 t->files = base_files;
+            task_running_ = false;
             finish_task(t, ok, cancelled, err);
             if (on_done)
                 on_done(ok, cancelled, err);
+            start_next_task();
         });
     });
 }
 
+void Controller::show_plan(const PlanCollector &plan, bool confirm_sync, const std::string &job_name,
+                           std::function<void()> on_accept)
+{
+    std::vector<const PlanItem *> order;
+    order.reserve(plan.items.size());
+    for (const auto &item : plan.items)
+        order.push_back(&item);
+    auto rank = [](const std::string &a) { return a == "delete" ? 0 : a == "update" ? 1 : a == "move" ? 2 : 3; };
+    std::stable_sort(order.begin(), order.end(), [&](const PlanItem *a, const PlanItem *b) { return rank(a->action) < rank(b->action); });
+
+    constexpr size_t kRows = 3000;
+    std::vector<PlanRow> rows;
+    for (size_t i = 0; i < order.size() && i < kRows; ++i) {
+        PlanRow r;
+        r.action = S(order[i]->action);
+        r.path = S(order[i]->path);
+        r.size = S(format_size(order[i]->size));
+        r.dest = S(order[i]->dest);
+        rows.push_back(std::move(r));
+    }
+    plan_rows_->set_vector(std::move(rows));
+
+    std::string summary;
+    auto part = [&](int64_t n, const char *one, const char *many) {
+        if (n <= 0)
+            return;
+        summary += (summary.empty() ? "" : " · ") + std::to_string(n) + " " + (n == 1 ? one : many);
+    };
+    part(plan.copies, "archivo nuevo", "archivos nuevos");
+    part(plan.updates, "para actualizar", "para actualizar");
+    part(plan.moves, "para mover", "para mover");
+    part(plan.deletes, "para borrar", "para borrar");
+    if (summary.empty())
+        summary = "No hay cambios que aplicar.";
+    else
+        summary += "\n" + format_size(plan.bytes_transferred) + " a transferir" +
+                   (plan.deletes > 0 ? " · " + format_size(plan.bytes_deleted) + " a borrar del destino" : "");
+
+    B().set_plan_title(S(confirm_sync ? "Revisar antes de sincronizar" : "Resultado de la simulación"));
+    B().set_plan_summary(S(job_name.empty() ? summary : job_name + "\n" + summary));
+    B().set_plan_warning(S(confirm_sync && plan.deletes > 0
+                                   ? "Al aplicar la sincronización se borrarán " + std::to_string(plan.deletes) +
+                                             (plan.deletes == 1 ? " archivo" : " archivos") +
+                                             " del destino porque no existen en el origen. Revisa la lista antes de continuar."
+                                   : ""));
+    std::string note = "La simulación no ha modificado nada; el contenido puede cambiar antes de aplicarla.";
+    if (plan.truncated || order.size() > kRows)
+        note = "Se muestran los primeros " + std::to_string(std::min(order.size(), kRows)) + " de " +
+               std::to_string(plan.total()) + " cambios. " + note;
+    B().set_plan_note(S(note));
+    B().set_plan_confirm(S(confirm_sync ? "Aplicar sincronización" : ""));
+    B().set_plan_danger(confirm_sync && plan.deletes > 0);
+    plan_action_ = std::move(on_accept);
+    B().set_plan_open(true);
+}
+
+void Controller::refresh_background_status()
+{
+    const bool enabled = store_.settings.background_schedules;
+    const bool has_schedules = std::any_of(store_.jobs.begin(), store_.jobs.end(), [](const Job &j) { return j.schedule.enabled; });
+    if (!enabled || !has_schedules) {
+        BackgroundSummary s = summarize_background(enabled, has_schedules, {}, {});
+        B().set_background_line(S(s.text));
+        B().set_background_problem(false);
+        return;
+    }
+    spawn([this, enabled, has_schedules] {
+        BackgroundTask task = query_background_task();
+        BackgroundRun run = load_background_run();
+        post([this, enabled, has_schedules, task, run] {
+            BackgroundSummary s = summarize_background(enabled, has_schedules, task, run);
+            B().set_background_line(S(s.text));
+            B().set_background_problem(s.problem);
+        });
+    });
+}
 void Controller::finish_task(const std::shared_ptr<Task> &t, bool ok, bool cancelled, const std::string &err)
 {
     tasks_.erase(std::remove(tasks_.begin(), tasks_.end(), t), tasks_.end());
@@ -1385,12 +1582,22 @@ void Controller::finish_task(const std::shared_ptr<Task> &t, bool ok, bool cance
     r.progress = ok ? 1.f : t->progress;
     r.speed = S("");
     r.state = S(state);
+    const ErrorHint hint = ok || cancelled ? ErrorHint {} : explain_error(err);
+    const std::string shown_err = ok || cancelled ? err : friendly_error(err);
     std::string info = ok ? (t->dry ? "Simulación · " : "") + format_size(t->bytes) + " · " + std::to_string(t->files) + " arch. · " + format_duration(secs)
-                          : (cancelled ? "Cancelado" : err);
+                          : (cancelled ? "Cancelado" : shown_err);
     r.info = S(info);
+    r.technical = S(!ok && !cancelled && hint.known() ? err : "");
+    r.can_retry = !ok && static_cast<bool>(t->retry);
+    if (r.can_retry)
+        retry_actions_[t->id] = t->retry;
     done_model_->insert(0, r);
-    while (done_model_->row_count() > 200)
+    while (done_model_->row_count() > 200) {
+        retry_actions_.erase(T(done_model_->row_data(done_model_->row_count() - 1)->id));
         done_model_->erase(done_model_->row_count() - 1);
+    }
+    if (t->dry && ok)
+        last_plan_ = t->plan;
 
     if (!t->dry || !ok) {
         HistoryEntry h;
@@ -1414,19 +1621,21 @@ void Controller::finish_task(const std::shared_ptr<Task> &t, bool ok, bool cance
 
     add_log(ok ? "info" : "error", (ok ? "Terminado: " : cancelled ? "Cancelado: " : "Error: ") + t->title + (ok || cancelled ? "" : " — " + err));
     if (ok) {
-        toast(t->dry ? "Simulación completada. Revisa el Registro para ver los cambios previstos."
-                     : "Completado: " + t->title + " (" + format_size(t->bytes) + ")");
-        if (t->dry) {
-            B().set_bottom_tab(2);
-            B().set_bottom_open(true);
+        if (t->dry && t->plan && t->trigger != "preview") {
+            toast("Simulación completada.");
+            show_plan(*t->plan, false, t->job_name.empty() ? t->title : t->job_name, nullptr);
+        } else if (t->dry) {
+            toast("Simulación completada.");
+        } else {
+            toast("Completado: " + t->title + " (" + format_size(t->bytes) + ")");
         }
     } else if (cancelled) {
         toast("Operación cancelada.");
     } else {
-        toast("Error: " + err, true);
+        toast("Error: " + shown_err, true);
     }
     if (store_.settings.notify_done && !cancelled && !plat::app_is_foreground())
-        plat::tray_notify(ok ? "Operación completada" : "Operación con error", ok ? t->title + " (" + format_size(t->bytes) + ")" : t->title + ": " + err, !ok);
+        plat::tray_notify(ok ? "Operación completada" : "Operación con error", ok ? t->title + " (" + format_size(t->bytes) + ")" : t->title + ": " + shown_err, !ok);
 }
 
 // ------------------------------------------------------------------ compare
@@ -2254,10 +2463,9 @@ void Controller::preview_sync_then_confirm(const std::string &id)
         Job *job = store_.find_job(id);
         if (!job)
             return;
-        confirm("Aplicar sincronización",
-                "La simulación se ha completado sin modificar archivos. Revisa sus resultados en Transferencias antes de continuar.\n\n"
-                "Al aplicar la sincronización, se eliminarán del destino los archivos que no existan en el origen.",
-                "Aplicar sincronización", true, [this, id] { run_job(id, false, "manual"); });
+        const std::string name = job->name;
+        std::shared_ptr<PlanCollector> plan = last_plan_ ? last_plan_ : std::make_shared<PlanCollector>();
+        show_plan(*plan, true, name, [this, id] { run_job(id, false, "manual"); });
     });
 }
 
@@ -2582,6 +2790,7 @@ void Controller::apply_settings()
     if (persist())
         sync_background_scheduler();
     load_settings_into_ui();
+    refresh_background_status();
     bool had = rc_.available();
     refresh_rclone_state();
     if (!rc_.available() && !s.rclone_path.empty())
@@ -2876,15 +3085,47 @@ void Controller::bind_callbacks()
 
     // transfers panel
     b.on_cancel_transfer([this](slint::SharedString id) {
-        for (auto &t : tasks_)
+        auto copy = tasks_;
+        for (auto &t : copy)
             if (t->id == T(id))
-                t->handle.kill();
+                cancel_task(t);
     });
-    b.on_cancel_all([this] {
-        for (auto &t : tasks_)
-            t->handle.kill();
+    b.on_cancel_all([this] { cancel_all_tasks(); });
+    b.on_retry_transfer([this](slint::SharedString id) {
+        auto it = retry_actions_.find(T(id));
+        if (it == retry_actions_.end())
+            return;
+        auto action = it->second;
+        retry_actions_.erase(it);
+        for (int i = 0; i < done_model_->row_count(); ++i) {
+            auto row = *done_model_->row_data(i);
+            if (T(row.id) == T(id)) {
+                row.can_retry = false;
+                done_model_->set_row_data(i, row);
+                break;
+            }
+        }
+        action();
     });
-    b.on_clear_done([this] { done_model_->set_vector({}); });
+    b.on_copy_technical([this](slint::SharedString text) {
+        plat::set_clipboard(T(text));
+        toast("Detalle copiado.");
+    });
+    b.on_plan_accept([this] {
+        auto act = std::move(plan_action_);
+        B().set_plan_open(false);
+        if (act)
+            act();
+    });
+    b.on_plan_close([this] {
+        plan_action_ = nullptr;
+        B().set_plan_open(false);
+    });
+    b.on_background_refresh([this] { refresh_background_status(); });
+    b.on_clear_done([this] {
+        done_model_->set_vector({});
+        retry_actions_.clear();
+    });
     b.on_clear_logs([this] { log_model_->set_vector({}); });
 
     // settings
@@ -2928,6 +3169,7 @@ void Controller::start()
     b.set_done_transfers(done_model_);
     b.set_logs(log_model_);
     b.set_compare_rows(cmp_model_);
+    b.set_plan_rows(plan_rows_);
 
     load_settings_into_ui();
     refresh_rclone_state();
@@ -2940,6 +3182,7 @@ void Controller::start()
         toast(store_.warnings.front(), true);
     bind_callbacks();
     sync_background_scheduler();
+    refresh_background_status();
 
     remote_names_.push_back("Disco local");
     remote_names_model_->push_back(S("Disco local"));
@@ -2963,6 +3206,8 @@ void Controller::start()
         poll_mounts();
         if (tick_ % 30 == 5)
             check_schedules();
+        if (tick_ % 60 == 20 && B().get_page() == 5)
+            refresh_background_status();
     });
 
     for (auto &m : store_.mounts)

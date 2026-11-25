@@ -1,5 +1,6 @@
 #include "rclone.h"
 #include "close_policy.h"
+#include "diagnostics.h"
 #include "scheduler.h"
 #include "store.h"
 
@@ -168,6 +169,45 @@ int main()
                     std::filesystem::exists(data_root / L"RcloneLite" / L"jobs.json.corrupt"),
             "store recovery reports and preserves the damaged file");
     std::filesystem::remove_all(data_root, ec);
+
+    require(explain_error("googleapi: Error 403: The user's Drive storage quota has been exceeded, storageQuotaExceeded").kind == "quota",
+            "quota errors are explained");
+    require(explain_error("Failed to copy: open C:/x: Access is denied.").kind == "permission", "permission errors are explained");
+    require(explain_error("couldn't fetch token: invalid_grant").kind == "auth", "expired tokens are explained");
+    require(explain_error("error listing: directory not found").kind == "not_found", "missing paths are explained");
+    require(explain_error("write x: There is not enough space on the disk.").kind == "disk_full", "full disks are explained");
+    require(explain_error("dial tcp: lookup host: no such host").kind == "network", "network errors are explained");
+    require(explain_error(transfer_busy_message()).kind == "busy", "busy lock is explained");
+    require(!explain_error("something odd happened").known() && friendly_error("something odd happened") == "something odd happened",
+            "unknown errors keep their raw text");
+    require(friendly_error("permission denied").find("permisos") != std::string::npos, "friendly text names the cause");
+
+    PlanCollector plan;
+    plan.add({ "copy", "a.txt", 10, "" });
+    plan.add({ "copy", "b.txt", 20, "" });
+    plan.add({ "delete", "gone.txt", 5, "" });
+    plan.mark_updates({ "b.txt" });
+    require(plan.copies == 1 && plan.updates == 1 && plan.deletes == 1 && plan.total() == 3, "plan counts each action once");
+    require(plan.bytes_transferred == 30 && plan.bytes_deleted == 5, "plan sums sizes");
+    PlanCollector other;
+    other.add({ "delete", "x", 1, "" });
+    plan.merge(std::move(other), "dest2");
+    require(plan.deletes == 2 && plan.items.back().dest == "dest2", "plans from several destinations merge");
+
+    const std::string csv =
+            "\"PC\",\"\\Rclone Lite Background Scheduled Jobs\",\"25/11/2026 10:01:00\",\"Listo\",\"Interactivo\",\"25/11/2026 10:00:01\",\"0\",\"user\"\n";
+    BackgroundTask task = parse_task_query_csv(csv);
+    require(task.exists && task.last_result_known && task.last_result == 0 && task.last_run == "25/11/2026 10:00:01",
+            "scheduled task query is parsed");
+    BackgroundRun clean { 1000000, 2, 0, "" };
+    require(!summarize_background(true, true, task, clean).problem, "a clean background run is not a problem");
+    BackgroundRun failed { 1000000, 2, 1, "permission denied" };
+    BackgroundSummary bad = summarize_background(true, true, task, failed);
+    require(bad.problem && bad.text.find("permisos") != std::string::npos, "failed background jobs are reported with a cause");
+    BackgroundTask missing;
+    missing.queried = true;
+    require(summarize_background(true, true, missing, clean).problem, "a missing Windows task is reported");
+    require(!summarize_background(false, true, task, clean).problem, "disabled background runs are not a problem");
 
     std::cout << "All logic tests passed.\n";
     return 0;

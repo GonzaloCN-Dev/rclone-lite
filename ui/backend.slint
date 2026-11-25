@@ -1,4 +1,4 @@
-import { FileRow, RemoteRow, TransferRow, CompareRow, JobRow, HistoryRow, MountRow, LogRow, FieldRow, JobForm, MountForm } from "types.slint";
+import { FileRow, RemoteRow, TransferRow, CompareRow, JobRow, HistoryRow, MountRow, LogRow, FieldRow, JobForm, MountForm, PlanRow } from "types.slint";
 
 export global Backend {
     in-out property <int> page: 0;
@@ -145,6 +145,8 @@ export global Backend {
     in property <[float]> speed-history;
     in property <string> speed-peak;
     callback cancel-transfer(string);
+    callback retry-transfer(string);
+    callback copy-technical(string);
     callback cancel-all();
     callback clear-done();
     callback clear-logs();
@@ -162,6 +164,9 @@ export global Backend {
     in-out property <bool> set-auto-tune: true;
     in-out property <bool> set-update-existing: false;
     in-out property <bool> set-background-schedules: false;
+    in property <string> background-line;
+    in property <bool> background-problem: false;
+    callback background-refresh();
     in property <string> update-status;
     in property <bool> update-busy: false;
     callback check-updates();
@@ -181,6 +186,18 @@ export global Backend {
     in-out property <string> dialog-input;
     callback dialog-accept();
     callback dialog-cancel();
+
+    // Simulation report
+    in property <string> plan-title;
+    in property <string> plan-summary;
+    in property <string> plan-warning;
+    in property <string> plan-note;
+    in property <[PlanRow]> plan-rows;
+    in property <string> plan-confirm;
+    in property <bool> plan-danger: false;
+    in-out property <bool> plan-open: false;
+    callback plan-accept();
+    callback plan-close();
 
     in property <string> toast;
     in property <bool> toast-error: false;

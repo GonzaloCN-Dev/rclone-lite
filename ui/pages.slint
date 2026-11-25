@@ -678,6 +678,31 @@ export component SettingsPage inherits Rectangle {
                             checked: Backend.set-background-schedules;
                             toggled(v) => { Backend.set-background-schedules = v; }
                         }
+                        Rectangle {
+                            height: bgline.preferred-height + 16px;
+                            background: Backend.background-problem ? Theme.warning.with-alpha(0.15) : Theme.surface2;
+                            border-radius: 8px;
+                            HorizontalLayout {
+                                padding: 8px;
+                                padding-left: 12px;
+                                spacing: 10px;
+                                bgline := Text {
+                                    horizontal-stretch: 1;
+                                    text: Backend.background-line;
+                                    font-size: 12px;
+                                    color: Theme.text;
+                                    wrap: word-wrap;
+                                    vertical-alignment: center;
+                                }
+                                Btn {
+                                    y: 0px;
+                                    compact: true;
+                                    text: "Actualizar";
+                                    kind: "ghost";
+                                    clicked => { Backend.background-refresh(); }
+                                }
+                            }
+                        }
                     }
                 }
 

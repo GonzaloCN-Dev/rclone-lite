@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(RcloneLite VERSION 1.4.0 LANGUAGES CXX RC)
+project(RcloneLite VERSION 1.5.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,6 +34,7 @@ FetchContent_MakeAvailable(Slint nlohmann_json)
 add_executable(RcloneLite WIN32
     src/main.cpp
     src/controller.cpp
+    src/diagnostics.cpp
     src/proc.cpp
     src/rclone.cpp
     src/scheduler.cpp
@@ -64,6 +65,7 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(RcloneLiteLogicTests
         tests/logic_tests.cpp
+        src/diagnostics.cpp
         src/platform.cpp
         src/proc.cpp
         src/rclone.cpp
@@ -80,6 +82,7 @@ if(BUILD_TESTING)
     add_test(NAME RcloneLiteLogicTests COMMAND RcloneLiteLogicTests)
     add_executable(RcloneLiteRcloneIntegrationTests
         tests/rclone_integration_tests.cpp
+        src/diagnostics.cpp
         src/platform.cpp
         src/proc.cpp
         src/rclone.cpp
