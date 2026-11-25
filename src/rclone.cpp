@@ -496,6 +496,19 @@ const char *transfer_busy_message()
     return "Ya hay una transferencia de Rclone Lite en curso. Espera a que termine antes de iniciar otra.";
 }
 
+bool transfer_lock_busy()
+{
+    HANDLE m = CreateMutexW(nullptr, FALSE, L"Local\\RcloneLiteTransferInProgress");
+    if (!m)
+        return false;
+    const DWORD r = WaitForSingleObject(m, 0);
+    const bool busy = r == WAIT_TIMEOUT;
+    if (r == WAIT_OBJECT_0 || r == WAIT_ABANDONED)
+        ReleaseMutex(m);
+    CloseHandle(m);
+    return busy;
+}
+
 void PlanCollector::add(PlanItem item)
 {
     if (item.action == "copy")

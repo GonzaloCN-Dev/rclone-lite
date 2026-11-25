@@ -21,6 +21,10 @@ OpResult configure_background_task(const std::string &exe, bool enabled,
 // Last batch of background jobs, kept in the data folder so the app can show it.
 void save_background_run(const BackgroundRun &run);
 BackgroundRun load_background_run();
+
+// Written just before the installer starts so background runs do not start while files are replaced.
+void set_update_marker(bool on);
+bool update_marker_active(int64_t now, int64_t max_age_seconds = 900);
 BackgroundTask query_background_task(const std::string &task_name = "Rclone Lite Background Scheduled Jobs");
 
 // Runs jobs due at `now`, persists their status and history, and returns the number of failures.

@@ -194,11 +194,11 @@ int main()
     plan.merge(std::move(other), "dest2");
     require(plan.deletes == 2 && plan.items.back().dest == "dest2", "plans from several destinations merge");
 
-    const std::string csv =
-            "\"PC\",\"\\Rclone Lite Background Scheduled Jobs\",\"25/11/2026 10:01:00\",\"Listo\",\"Interactivo\",\"25/11/2026 10:00:01\",\"0\",\"user\"\n";
-    BackgroundTask task = parse_task_query_csv(csv);
-    require(task.exists && task.last_result_known && task.last_result == 0 && task.last_run == "25/11/2026 10:00:01",
-            "scheduled task query is parsed");
+    BackgroundTask task = parse_task_info("exists=1\nlast=1795600000\nnext=1795600060\nresult=0\n");
+    require(task.exists && task.last_result_known && task.last_result == 0 && task.last_run == 1795600000 && task.next_run == 1795600060,
+            "scheduled task info is parsed");
+    require(!parse_task_info("exists=0\n").exists && parse_task_info("exists=0\n").queried, "a missing task is reported as missing");
+    require(parse_task_info("garbage\nresult=abc\n").last_result_known == false, "malformed task info is ignored");
     BackgroundRun clean { 1000000, 2, 0, "" };
     require(!summarize_background(true, true, task, clean).problem, "a clean background run is not a problem");
     BackgroundRun failed { 1000000, 2, 1, "permission denied" };

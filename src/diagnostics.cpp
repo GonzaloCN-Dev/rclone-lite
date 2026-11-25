@@ -1,4 +1,4 @@
-﻿#include "diagnostics.h"
+#include "diagnostics.h"
 
 #include <algorithm>
 #include <cctype>
@@ -22,35 +22,6 @@ bool has_any(const std::string &l, std::initializer_list<const char *> needles)
         if (l.find(n) != std::string::npos)
             return true;
     return false;
-}
-
-std::vector<std::string> csv_fields(const std::string &line)
-{
-    std::vector<std::string> out;
-    std::string cur;
-    bool quoted = false;
-    for (size_t i = 0; i < line.size(); ++i) {
-        char c = line[i];
-        if (quoted) {
-            if (c == '"' && i + 1 < line.size() && line[i + 1] == '"') {
-                cur += '"';
-                ++i;
-            } else if (c == '"') {
-                quoted = false;
-            } else {
-                cur += c;
-            }
-        } else if (c == '"') {
-            quoted = true;
-        } else if (c == ',') {
-            out.push_back(cur);
-            cur.clear();
-        } else if (c != '\r' && c != '\n') {
-            cur += c;
-        }
-    }
-    out.push_back(cur);
-    return out;
 }
 
 } // namespace
@@ -98,7 +69,7 @@ std::string friendly_error(const std::string &raw)
     return h.title + ". " + h.action;
 }
 
-BackgroundTask parse_task_query_csv(const std::string &text)
+BackgroundTask parse_task_info(const std::string &text)
 {
     BackgroundTask t;
     t.queried = true;
@@ -107,20 +78,25 @@ BackgroundTask parse_task_query_csv(const std::string &text)
         size_t end = text.find('\n', start);
         std::string line = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
         start = end == std::string::npos ? text.size() : end + 1;
-        auto f = csv_fields(line);
-        if (f.size() < 7)
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+            line.pop_back();
+        size_t eq = line.find('=');
+        if (eq == std::string::npos)
             continue;
-        t.exists = true;
-        t.next_run = f[2];
-        t.status = f[3];
-        t.last_run = f[5];
+        const std::string key = line.substr(0, eq), value = line.substr(eq + 1);
         char *tail = nullptr;
-        long long v = std::strtoll(f[6].c_str(), &tail, 10);
-        if (tail != f[6].c_str() && *tail == '\0') {
+        const long long v = std::strtoll(value.c_str(), &tail, 10);
+        const bool numeric = !value.empty() && tail != value.c_str() && *tail == '\0';
+        if (key == "exists")
+            t.exists = numeric && v == 1;
+        else if (key == "last" && numeric)
+            t.last_run = v;
+        else if (key == "next" && numeric)
+            t.next_run = v;
+        else if (key == "result" && numeric) {
             t.last_result = v;
             t.last_result_known = true;
         }
-        return t;
     }
     return t;
 }
@@ -144,17 +120,15 @@ BackgroundSummary summarize_background(bool enabled, bool has_schedules, const B
     } else if (!task.queried) {
         text = "Comprobando la tarea de Windows…";
     } else {
-        const bool never = task.last_run.empty() || task.last_run.find("1999") != std::string::npos ||
-                           task.last_run.find("30/11/1999") != std::string::npos;
-        text = never ? "La tarea de Windows aún no se ha ejecutado."
-                     : "Tarea de Windows: última ejecución " + task.last_run;
+        text = task.last_run <= 0 ? "La tarea de Windows aún no se ha ejecutado."
+                                  : "Tarea de Windows: última ejecución " + format_time(task.last_run);
         // 0x41301 means the task is running right now; 0x41303 means it has not run yet.
         if (task.last_result_known && task.last_result != 0 && task.last_result != 267009 && task.last_result != 267011) {
             s.problem = true;
             text += " (Windows devolvió el código " + std::to_string(task.last_result) + ")";
         }
-        if (!task.next_run.empty() && task.next_run != "N/A" && task.next_run != "N/D")
-            text += ". Próxima comprobación: " + task.next_run;
+        if (task.next_run > 0)
+            text += ". Próxima comprobación: " + format_time(task.next_run);
     }
     if (run.time > 0) {
         text += "\nÚltimos trabajos: " + format_time(run.time) + ", " + std::to_string(run.jobs) +

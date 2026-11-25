@@ -95,6 +95,8 @@ struct TransferOptions {
 
 // Message returned when another Rclone Lite transfer owns the global transfer lock.
 const char *transfer_busy_message();
+// True when another Rclone Lite process (e.g. a background job) holds the global transfer lock right now.
+bool transfer_lock_busy();
 
 struct OpResult {
     bool ok = false;

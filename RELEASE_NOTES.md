@@ -1,35 +1,21 @@
-# Rclone Lite 1.5.0
+# Rclone Lite 1.5.1
 
-## Errores y reintentos
+## Mejoras sobre 1.5.0
 
-- **Mensajes de error comprensibles:** los errores típicos de rclone (cuota agotada, permisos, sesión caducada, ruta inexistente, falta de espacio, red) se explican con su causa y qué hacer. El texto original sigue disponible en **Detalle técnico**, con botón para copiarlo.
-- **Reintentar:** las operaciones y trabajos que fallan en Completadas tienen un botón **Reintentar** que repite el mismo origen, destino y opciones.
-
-## Cola de transferencias
-
-- Si inicias una transferencia mientras otra está en curso, queda **en cola** y empieza al terminar la anterior, en lugar de rechazarse. Puedes cancelarla desde la lista.
-- Los trabajos en segundo plano esperan su turno si la app está transfiriendo, y al revés.
-
-## Informe de simulación
-
-- Las simulaciones y la vista previa antes de sincronizar muestran una **lista de archivos a copiar, actualizar y borrar**, con totales y tamaños. Los borrados aparecen primero y con aviso destacado.
-
-## Segundo plano
-
-- En Ajustes se muestra cuándo se ejecutó por última vez la tarea de Windows, la próxima comprobación y si los últimos trabajos tuvieron fallos y por qué.
+- **Actualizaciones y segundo plano:** la app detecta si un trabajo en segundo plano está transfiriendo y pospone la actualización. Además, antes de lanzar el instalador se marca la actualización para que los trabajos en segundo plano no arranquen mientras se reemplazan archivos.
+- **Cola persistente:** si cierras la app con operaciones en cola o a medias, al abrirla se ofrece **reanudarlas** (rclone omite lo ya copiado). Si las descartas, no se vuelven a ofrecer.
+- **Estado de la tarea de Windows independiente del idioma:** se consulta con PowerShell y valores numéricos, sin depender del texto de `schtasks`.
 
 ## Notas
 
-- La simulación no modifica nada, pero el contenido puede cambiar antes de aplicarla.
-- Un informe muy grande muestra solo los primeros 3000 cambios; los totales incluyen todos.
-- La protección de actualizaciones sigue cubriendo solo las transferencias de la app, no los trabajos en segundo plano.
+- La detección de trabajos en segundo plano usa el bloqueo de transferencia compartido: solo ve un trabajo mientras transfiere.
+- Las simulaciones no se guardan en la cola persistente.
 
 ## Actualización
 
-Descarga `RcloneLite-Setup-1.5.0.exe` e instálalo sobre la versión anterior. Tus trabajos, remotos e historial permanecen en `%APPDATA%\RcloneLite`.
+Descarga `RcloneLite-Setup-1.5.1.exe` e instálalo sobre la versión anterior. Tus datos permanecen en `%APPDATA%\RcloneLite`.
 
-El instalador es x64 para Windows 10/11 y no está firmado, por lo que Windows SmartScreen podría mostrar un aviso de editor desconocido.
+El instalador es x64 para Windows 10/11 y no está firmado, por lo que SmartScreen podría mostrar un aviso.
 
-- Interfaz en español.
-- Código original bajo licencia MIT; consulta `installer/LICENSES.txt` para las licencias de terceros.
+- Código original bajo licencia MIT; consulta `installer/LICENSES.txt` para licencias de terceros.
 - Creado por Gonzalo Cruz Núñez.

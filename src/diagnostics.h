@@ -30,15 +30,14 @@ struct BackgroundRun {
 struct BackgroundTask {
     bool queried = false;
     bool exists = false;
-    std::string status;   // as printed by schtasks (localized)
-    std::string last_run; // as printed by schtasks (localized)
-    std::string next_run;
+    int64_t last_run = 0; // unix seconds, 0 = never
+    int64_t next_run = 0;
     long long last_result = 0;
     bool last_result_known = false;
 };
 
-// Parses one data line of `schtasks /Query /FO CSV /V /NH`. Column positions do not depend on the language.
-BackgroundTask parse_task_query_csv(const std::string &text);
+// Parses the "key=value" lines printed by the PowerShell query. Numbers only, so it works in any Windows language.
+BackgroundTask parse_task_info(const std::string &text);
 
 struct BackgroundSummary {
     std::string text;

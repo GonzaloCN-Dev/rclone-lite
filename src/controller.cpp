@@ -9,12 +9,17 @@
 #include <chrono>
 #include <ctime>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <set>
 #include <sstream>
 #include <thread>
 
+#include <nlohmann/json.hpp>
+
+#include "jsonutil.h"
 #include "platform.h"
 #include "proc.h"
 #include "providers.h"
@@ -144,6 +149,7 @@ struct Task {
     bool auth_noted = false;
     int64_t bytes = 0, total = 0, files = 0;
     bool queued = false;
+    std::vector<Step> saved_steps; // without temp files; used to restore the queue after a restart
     std::function<void()> retry;
     std::shared_ptr<PlanCollector> plan;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -287,6 +293,9 @@ private:
     void start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
                     std::function<void(bool, bool, const std::string &)> on_done = {});
     void launch_task(PendingTask p);
+    void save_queue() const;
+    void restore_queue();
+    size_t update_blockers() const;
     void start_next_task();
     void cancel_task(const std::shared_ptr<Task> &t);
     void cancel_all_tasks();
@@ -1194,7 +1203,7 @@ void Controller::on_update_result(const updater::Release &r, bool manual)
     if (r.size > 0)
         text += "\nDescarga: " + format_size(r.size) + ".";
     text += "\n\nSe descargará, se comprobará su integridad y se instalará. La aplicación se cerrará y volverá a abrirse sola.";
-    if (should_defer_update(tasks_.size()))
+    if (should_defer_update(update_blockers()))
         text += "\n\nHay transferencias en curso. Podrás actualizar cuando terminen.";
     confirm("Actualización disponible", text, "Actualizar ahora", false, [this, r] { start_update(r); });
 }
@@ -1203,7 +1212,7 @@ void Controller::start_update(const updater::Release &r)
 {
     if (update_busy_)
         return;
-    if (should_defer_update(tasks_.size())) {
+    if (should_defer_update(update_blockers())) {
         B().set_update_status(S("Actualización pendiente: espera a que terminen las transferencias y vuelve a intentarlo."));
         toast("Espera a que terminen las transferencias antes de actualizar.");
         return;
@@ -1244,13 +1253,15 @@ void Controller::start_update(const updater::Release &r)
                 add_log("error", "Actualización: " + err);
                 return;
             }
-            if (should_defer_update(tasks_.size())) {
+            if (should_defer_update(update_blockers())) {
                 B().set_update_status(S("Actualización pendiente: hay transferencias en curso. Vuelve a intentarlo cuando terminen."));
                 toast("No se instalará la actualización mientras haya transferencias en curso.");
                 return;
             }
             B().set_update_status(S("Instalando la versión " + r.version + "…"));
+            set_update_marker(true);
             if (!updater::run_installer(dest)) {
+                set_update_marker(false);
                 B().set_update_status(S("No se pudo iniciar el instalador."));
                 toast("No se pudo iniciar el instalador (¿cancelaste el permiso de administrador?).", true);
                 return;
@@ -1335,8 +1346,14 @@ void Controller::start_task(std::shared_ptr<Task> t, std::vector<Step> steps,
         }
     }
 
+    if (!t->dry) {
+        t->saved_steps = steps;
+        for (auto &s : t->saved_steps)
+            s.temp_file.clear();
+    }
     t->queued = task_running_;
     tasks_.push_back(t);
+    save_queue();
     if (t->queued)
         t->detail = "En cola: empezará cuando termine la transferencia actual";
     refresh_active();
@@ -1491,6 +1508,118 @@ void Controller::launch_task(PendingTask pending)
     });
 }
 
+size_t Controller::update_blockers() const
+{
+    // A background job runs in another process, so only the shared transfer lock reveals it.
+    return tasks_.size() + (tasks_.empty() && transfer_lock_busy() ? 1 : 0);
+}
+
+namespace {
+
+std::string queue_file_path()
+{
+    return Store::data_dir() + "\\queue.json";
+}
+
+} // namespace
+
+void Controller::save_queue() const
+{
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto &t : tasks_) {
+        if (t->dry)
+            continue;
+        nlohmann::json steps = nlohmann::json::array();
+        for (const auto &s : t->saved_steps)
+            steps.push_back({ { "src", s.src }, { "dst", s.dst }, { "file", s.file }, { "mode", s.mode },
+                              { "opt", options_to_json(s.opt) }, { "names", s.list_names } });
+        arr.push_back({ { "title", t->title }, { "route", t->route }, { "mode", t->mode }, { "job_id", t->job_id },
+                        { "trigger", t->trigger }, { "steps", steps } });
+    }
+    const std::filesystem::path path(utf8_to_wide(queue_file_path()));
+    std::error_code ec;
+    if (arr.empty()) {
+        std::filesystem::remove(path, ec);
+        return;
+    }
+    std::filesystem::path tmp = path;
+    tmp += L".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        f << arr.dump();
+        if (!f)
+            return;
+    }
+    std::filesystem::rename(tmp, path, ec);
+    if (ec)
+        std::filesystem::remove(tmp, ec);
+}
+
+void Controller::restore_queue()
+{
+    const std::filesystem::path path(utf8_to_wide(queue_file_path()));
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+        return;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    f.close();
+    auto parsed = std::make_shared<nlohmann::json>(nlohmann::json::parse(ss.str(), nullptr, false));
+    std::error_code ec;
+    if (!parsed->is_array() || parsed->empty()) {
+        std::filesystem::remove(path, ec);
+        return;
+    }
+    std::string list;
+    int shown = 0;
+    for (const auto &item : *parsed) {
+        if (shown++ >= 6)
+            break;
+        list += "\n• " + jv(item, "title", "Operación");
+    }
+    if (parsed->size() > 6)
+        list += "\n• …y " + std::to_string(parsed->size() - 6) + " más";
+    confirm("Operaciones pendientes",
+            "Rclone Lite se cerró con operaciones sin terminar:" + list +
+                    "\n\nPuedes reanudarlas ahora; rclone omite lo que ya se copió. Si las descartas, no se volverán a ofrecer.",
+            "Reanudar", false, [this, parsed] {
+                for (const auto &item : *parsed) {
+                    auto t = std::make_shared<Task>();
+                    t->id = new_id();
+                    t->title = jv(item, "title", "Operación");
+                    t->route = jv(item, "route", "");
+                    t->mode = jv(item, "mode", "copy");
+                    t->job_id = jv(item, "job_id", "");
+                    t->trigger = jv(item, "trigger", "manual");
+                    std::vector<Step> steps;
+                    if (item.contains("steps") && item["steps"].is_array())
+                        for (const auto &js : item["steps"]) {
+                            Step s;
+                            s.src = jv(js, "src", "");
+                            s.dst = jv(js, "dst", "");
+                            s.file = jv(js, "file", false);
+                            s.mode = jv(js, "mode", "copy");
+                            s.opt = options_from_json(jv(js, "opt", nlohmann::json::object()));
+                            s.opt.dry_run = false;
+                            if (js.contains("names") && js["names"].is_array())
+                                for (const auto &n : js["names"])
+                                    if (n.is_string())
+                                        s.list_names.push_back(n.get<std::string>());
+                            if (valid_path_spec(s.src) && valid_path_spec(s.dst))
+                                steps.push_back(std::move(s));
+                        }
+                    if (steps.empty())
+                        continue;
+                    start_task(t, std::move(steps), [this](bool, bool, const std::string &) {
+                        refresh_pane(0);
+                        refresh_pane(1);
+                    });
+                }
+            });
+    // Discarding (or closing the dialog) must forget the old queue, or it would be offered forever.
+    std::filesystem::remove(path, ec);
+}
+
 void Controller::show_plan(const PlanCollector &plan, bool confirm_sync, const std::string &job_name,
                            std::function<void()> on_accept)
 {
@@ -1570,6 +1699,7 @@ void Controller::refresh_background_status()
 void Controller::finish_task(const std::shared_ptr<Task> &t, bool ok, bool cancelled, const std::string &err)
 {
     tasks_.erase(std::remove(tasks_.begin(), tasks_.end(), t), tasks_.end());
+    save_queue();
     refresh_active();
 
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t->start).count();
@@ -3197,6 +3327,8 @@ void Controller::start()
     load(0);
     load(1);
     load_remotes_async();
+    if (rc_.available())
+        restore_queue();
 
     poll_timer_.start(slint::TimerMode::Repeated, std::chrono::seconds(1), [this] {
         ++tick_;

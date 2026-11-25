@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "rclone.h"
 
 namespace rl {
@@ -100,6 +102,9 @@ struct Store {
     // Validates and sanitizes jobs from a file; nothing is added to `jobs` here.
     bool parse_jobs_import(const std::string &text, std::vector<Job> &out, ImportReport &rep) const;
 };
+
+nlohmann::json options_to_json(const TransferOptions &o);
+TransferOptions options_from_json(const nlohmann::json &j);
 
 std::string new_id();
 int64_t now_unix();

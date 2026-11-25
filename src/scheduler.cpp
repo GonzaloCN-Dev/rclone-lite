@@ -140,6 +140,28 @@ int run_due_jobs_unlocked(Store &store, Rclone &rclone, int64_t now)
 
 } // namespace
 
+void set_update_marker(bool on)
+{
+    const fs::path path = fs::path(utf8_to_wide(Store::data_dir())) / L"updating.flag";
+    std::error_code ec;
+    if (!on) {
+        fs::remove(path, ec);
+        return;
+    }
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f << now_unix();
+}
+
+bool update_marker_active(int64_t now, int64_t max_age_seconds)
+{
+    std::ifstream f(fs::path(utf8_to_wide(Store::data_dir())) / L"updating.flag", std::ios::binary);
+    if (!f)
+        return false;
+    long long stamp = 0;
+    f >> stamp;
+    return stamp > 0 && now - stamp >= 0 && now - stamp < max_age_seconds;
+}
+
 void save_background_run(const BackgroundRun &run)
 {
     nlohmann::json j = { { "time", run.time }, { "jobs", run.jobs }, { "failures", run.failures },
@@ -179,15 +201,22 @@ BackgroundRun load_background_run()
 
 BackgroundTask query_background_task(const std::string &task_name)
 {
-    ProcessResult r = run_process("schtasks.exe", { "/Query", "/TN", task_name, "/FO", "CSV", "/V", "/NH" });
-    BackgroundTask t;
-    if (!r.started || r.exit_code != 0) {
-        t.queried = r.started;
-        return t;
-    }
-    return parse_task_query_csv(r.out);
+    // PowerShell returns numbers (unix seconds, result code), so nothing depends on Windows' language.
+    std::string quoted;
+    for (char c : task_name)
+        quoted += c == '\'' ? std::string("''") : std::string(1, c);
+    const std::string script =
+            "$ErrorActionPreference='Stop';try{$t=Get-ScheduledTask -TaskName '" + quoted +
+            "';$i=$t|Get-ScheduledTaskInfo;"
+            "function U($d){if($d -and $d.Year -gt 2000){([DateTimeOffset]$d).ToUnixTimeSeconds()}else{0}};"
+            "Write-Output 'exists=1';Write-Output ('last='+(U $i.LastRunTime));Write-Output ('next='+(U $i.NextRunTime));"
+            "Write-Output ('result='+$i.LastTaskResult)}catch{Write-Output 'exists=0'}";
+    ProcessResult r = run_process("powershell.exe", { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script });
+    BackgroundTask task;
+    if (!r.started)
+        return task;
+    return parse_task_info(r.out);
 }
-
 std::string current_executable_path()
 {
     std::wstring path(32768, L'\0');
@@ -312,6 +341,10 @@ int run_scheduled_jobs_headless()
         plat::log_error("Almacén local: " + warning);
     if (!store.settings.background_schedules)
         return 0;
+    if (update_marker_active(now_unix())) {
+        plat::log_error("Se omite la ejecución en segundo plano: hay una actualización de Rclone Lite en curso.");
+        return 0;
+    }
 
     Rclone rclone;
     if (!store.settings.rclone_path.empty())

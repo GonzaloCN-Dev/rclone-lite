@@ -68,6 +68,10 @@ int main()
 
     HANDLE held_transfer = CreateMutexW(nullptr, TRUE, L"Local\\RcloneLiteTransferInProgress");
     require(held_transfer != nullptr, "test can hold the global transfer lock");
+    bool probe_busy = false;
+    std::thread probe_thread([&] { probe_busy = rl::transfer_lock_busy(); });
+    probe_thread.join();
+    require(probe_busy, "the probe sees a transfer lock held by another owner");
     rl::OpResult blocked;
     std::thread blocked_thread([&] {
         rl::TransferOptions blocked_options;
@@ -79,6 +83,19 @@ int main()
             "second transfer is rejected while another Rclone Lite transfer owns the lock");
     ReleaseMutex(held_transfer);
     CloseHandle(held_transfer);
+    bool probe_free = false;
+    std::thread free_thread([&] { probe_free = !rl::transfer_lock_busy(); });
+    free_thread.join();
+    require(probe_free, "the probe sees the lock free after release");
+
+    rl::set_update_marker(true);
+    require(rl::update_marker_active(rl::now_unix()), "update marker is active right after being set");
+    require(!rl::update_marker_active(rl::now_unix() + 2000), "stale update marker is ignored");
+    rl::Store marker_store;
+    marker_store.settings.background_schedules = true;
+    require(rl::run_scheduled_jobs_headless() == 0, "headless run is skipped while an update marker exists");
+    rl::set_update_marker(false);
+    require(!rl::update_marker_active(rl::now_unix()), "update marker is cleared");
 
     HANDLE queued_lock = CreateMutexW(nullptr, TRUE, L"Local\\RcloneLiteTransferInProgress");
     require(queued_lock != nullptr, "test can hold the lock for the queue check");

@@ -22,7 +22,7 @@ namespace {
 
 constexpr size_t kMaxHistory = 500;
 
-json options_to_json(const TransferOptions &o)
+json options_to_json_impl(const TransferOptions &o)
 {
     return { { "mode", o.mode },
              { "transfers", o.transfers },
@@ -37,7 +37,7 @@ json options_to_json(const TransferOptions &o)
              { "extra_flags", o.extra_flags } };
 }
 
-TransferOptions options_from_json(const json &j)
+TransferOptions options_from_json_impl(const json &j)
 {
     TransferOptions o;
     if (!j.is_object())
@@ -62,7 +62,7 @@ json job_to_json(const Job &j)
              { "name", j.name },
              { "source", j.source },
              { "destinations", j.destinations },
-             { "options", options_to_json(j.options) },
+             { "options", options_to_json_impl(j.options) },
              { "schedule",
                { { "enabled", j.schedule.enabled },
                  { "kind", j.schedule.kind },
@@ -86,7 +86,7 @@ Job job_from_json(const json &j)
         for (const auto &d : j["destinations"])
             if (d.is_string())
                 job.destinations.push_back(d.get<std::string>());
-    job.options = options_from_json(jv(j, "options", json::object()));
+    job.options = options_from_json_impl(jv(j, "options", json::object()));
     if (j.contains("schedule") && j["schedule"].is_object()) {
         const auto &s = j["schedule"];
         job.schedule.enabled = jv(s, "enabled", false);
@@ -191,6 +191,16 @@ std::string new_id()
     char buf[20];
     std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(rng()));
     return buf;
+}
+
+json options_to_json(const TransferOptions &o)
+{
+    return options_to_json_impl(o);
+}
+
+TransferOptions options_from_json(const json &j)
+{
+    return options_from_json_impl(j);
 }
 
 int64_t now_unix()
